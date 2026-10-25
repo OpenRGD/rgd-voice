@@ -93,7 +93,10 @@ class ProfileTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_private_file_and_round_trip(self):
-        with patch.object(core,'availability',return_value='ready'):
+        # The test checks profile serialization, not whether optional FFmpeg
+        # is installed on this CI host. Mock only the dependency probe.
+        with patch.object(core,'availability',return_value='ready'), \
+                patch('rgd_voice_lab.voice_controls.shutil.which', return_value='/test/ffmpeg'):
             p=voice_profile.save({'robot_instance_id':'paky-01', 'model_id':'piper:it_IT-serena-high',
                                   'voice_id':'it_IT-serena-high','controls':{'speed':1.1}})
         self.assertEqual(p['scope'],'audio_output_only')
