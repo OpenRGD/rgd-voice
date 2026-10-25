@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openrgd-voice-lab"
+version = "0.3.1"
+description = "Candidate local-first OpenRGD audio I/O laboratory (not Console-installable yet)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+turbo = ["websockets>=13,<17"]
+# Local Piper and Whisper dependencies are intentionally not auto-installed:
+# existing Paky-01 virtualenv already contains their verified versions.
+
+[project.scripts]
+rgd-voice-lab = "rgd_voice_lab.server:main"
+rgd-voice-say = "rgd_voice_lab.say:main"
+
+[tool.setuptools]
+packages = ["rgd_voice_lab"]
+
+[tool.setuptools.package-data]
+rgd_voice_lab = ["static/*.js", "static/*.css", "static/*.html"]

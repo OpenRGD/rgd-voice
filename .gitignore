@@ -1,0 +1,39 @@
+# Python / tooling
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Credentials and local operator state
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+*.wav
+*.mp3
+*.flac
+*.ogg
+models/
+evidence/
+clips/
+pricing/
+profiles/
+secrets/
+.local/
+.config/
+*.log
+
+# OS / Editors
+.DS_Store
+.idea/
+.vscode/

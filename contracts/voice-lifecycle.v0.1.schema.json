@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:openrgd:voice:lifecycle:v0.1-candidate",
+  "title": "OpenRGD Voice lifecycle event (non-normative candidate)",
+  "description": "Observation emitted by the voice I/O runtime, not a body-control authorization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "robot_instance_id",
+    "session_id",
+    "sequence",
+    "state",
+    "occurred_at_utc",
+    "evidence_kind"
+  ],
+  "properties": {
+    "contract": {
+      "const": "org.openrgd.voice.lifecycle.v0.1-candidate"
+    },
+    "robot_instance_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "state": {
+      "enum": [
+        "off",
+        "idle",
+        "listening",
+        "thinking",
+        "speaking",
+        "error"
+      ]
+    },
+    "occurred_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evidence_kind": {
+      "enum": [
+        "capture_started",
+        "capture_stopped_processing",
+        "playback_started",
+        "playback_stopped",
+        "ready_idle",
+        "service_error",
+        "operator_off"
+      ]
+    },
+    "source_module": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "detail_code": {
+      "type": "string",
+      "maxLength": 120
+    }
+  }
+}

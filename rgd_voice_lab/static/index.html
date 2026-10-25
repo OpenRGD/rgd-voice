@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenRGD — Voice Lab</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brandmark"><span class="brandmark-inner"></span></div>
+      <div><strong>OPEN<span>RGD</span></strong><small>VOICE LAB <b>0.3.1</b></small></div>
+    </div>
+    <div class="side-label">WORKSPACE</div>
+    <nav aria-label="Sezioni Voice Lab">
+      <button class="nav-btn active" data-route="lab"><span class="nav-ico">◈</span> Laboratorio <span class="nav-arrow">›</span></button>
+      <button class="nav-btn" data-route="models"><span class="nav-ico">⬡</span> Catalogo modelli <span class="nav-arrow">›</span></button>
+      <button class="nav-btn" data-route="voices"><span class="nav-ico">♫</span> Libreria voci <span class="nav-arrow">›</span></button>
+      <button class="nav-btn" data-route="benchmark"><span class="nav-ico">▥</span> Benchmark A/B <span class="nav-arrow">›</span></button>
+      <button class="nav-btn" data-route="costs"><span class="nav-ico">＄</span> Costi &amp; utilizzo <span class="nav-arrow">›</span></button>
+      <button class="nav-btn" data-route="devices"><span class="nav-ico">⌁</span> Dispositivi audio <span class="nav-arrow">›</span></button>
+      <button class="nav-btn" data-route="setup"><span class="nav-ico">⚙</span> Setup · API keys <span class="nav-arrow">›</span></button>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="label-chip">NON-ACTUATING</span>
+      <p>Un laboratorio I/O, non il cervello del robot. Nessuna modifica al Core, ai Chronon o ai motori.</p>
+      <div class="footline"><i id="service-dot" class="dot offline"></i><span id="service-label">In collegamento…</span></div>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar">
+      <div class="crumb"><span>OPENRGD</span> <em>/</em> AUDIO SYSTEMS <em>/</em> <strong id="page-crumb">LABORATORIO</strong></div>
+      <div class="top-actions"><span class="host-badge"><i class="dot online"></i><span id="host-label">Paky-01 · minipc</span></span><span class="island">LOCAL-FIRST</span></div>
+    </header>
+    <main>
+      <section class="view shown" id="view-lab">
+        <div class="eyebrow"><span class="eyebrow-line"></span>VOICE SYSTEMS / EXPERIMENTAL</div>
+        <div class="hero">
+          <div>
+            <h1>La voce è un'<span>interfaccia.</span></h1>
+            <p>Un unico laboratorio per ascoltare, trascrivere, sintetizzare e confrontare motori vocali. Il Cognitive Runtime resta indipendente.</p>
+            <div class="hero-tags"><span>◎ BC-Master USB</span><span>♬ Bose A2DP</span><span>⌘ Ubuntu 22.04</span></div>
+          </div>
+          <div class="signal-orb" aria-hidden="true"><div class="orb-core">≋</div><span class="orb-ring one"></span><span class="orb-ring two"></span></div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-head">INPUT DEVICE <span class="stat-icon">↘</span></div><div id="kpi-input" class="stat-value">—</div><div class="stat-sub">sorgente di registrazione</div></div>
+          <div class="stat"><div class="stat-head">OUTPUT DEVICE <span class="stat-icon">↗</span></div><div id="kpi-output" class="stat-value">—</div><div class="stat-sub">destinazione playback</div></div>
+          <div class="stat"><div class="stat-head">MOTORI LOCALI <span class="stat-icon">⬡</span></div><div id="kpi-local" class="stat-value">—</div><div class="stat-sub">modelli disponibili</div></div>
+          <div class="stat"><div class="stat-head">ULTIMO STT <span class="stat-icon">◷</span></div><div id="kpi-latency" class="stat-value">—</div><div class="stat-sub">latenza misurata</div></div>
+        </div>
+        <div class="lab-grid">
+          <section class="panel input-panel">
+            <div class="panel-title-row"><div><div class="step">01 / ASCOLTO</div><h2>Speech to Text</h2><p>Registra una frase o carica un WAV e confronta la trascrizione.</p></div><span class="panel-glyph">↙</span></div>
+            <label class="field-label" for="stt-model">MOTORE DI TRASCRIZIONE</label><select id="stt-model" class="select"><option>Caricamento…</option></select>
+            <div class="record-panel">
+              <div class="record-icon">◎</div>
+              <div><strong>Audio del mini-PC</strong><p id="mic-line">Sorgente in verifica…</p></div>
+              <span class="record-duration">8 SEC</span>
+            </div>
+            <div class="action-row"><button class="btn primary" id="record-btn"><span class="pulse-icon">●</span> Registra 8 secondi</button><label class="btn ghost upload-btn">Importa WAV <input id="upload-input" type="file" accept=".wav,audio/wav" hidden></label></div>
+            <div class="clip-box" id="clip-box"><span class="muted">Nessuna registrazione selezionata.</span></div>
+            <label class="field-label" for="reference">TESTO DI RIFERIMENTO <small>FACOLTATIVO · WER</small></label><textarea id="reference" class="textarea small" placeholder="Incolla qui la frase letta per misurare gli errori di trascrizione…"></textarea>
+            <button id="stt-run" class="btn line full" disabled>Trascrivi il WAV <span>→</span></button>
+            <div class="output-card" id="stt-output"><div class="output-label">TRASCRIZIONE <span id="stt-timing">—</span></div><p id="transcript">Qui comparirà il testo riconosciuto.</p><div id="wer-box" class="micro-metric"></div></div>
+          </section>
+          <section class="panel output-panel">
+            <div class="panel-title-row"><div><div class="step purple">02 / PARLATO</div><h2>Text to Speech</h2><p>Stessa frase, voci diverse. Ascolta prima di scegliere il provider.</p></div><span class="panel-glyph purple-ink">↗</span></div>
+            <label class="field-label" for="tts-model">MOTORE DI SINTESI</label><select id="tts-model" class="select"><option>Caricamento…</option></select>
+            <label class="field-label" for="tts-voice">IDENTITÀ VOCALE <small>PROVIDER-SPECIFIC</small></label><select id="tts-voice" class="select"><option>Caricamento…</option></select>
+            <label class="field-label" for="tts-text">TESTO DA PRONUNCIARE</label><textarea id="tts-text" class="textarea" maxlength="650">Ciao, sto provando diversi motori vocali su OpenRGD Voice. La mia voce è indipendente dal modello che la produce.</textarea>
+            <div class="voice-studio-card" id="voice-studio">
+              <div class="studio-title-row"><div><div class="step purple">VOICE STUDIO / PRESET</div><h3>Regia vocale</h3></div><span class="soft-badge">PERSONALIZZA · TESTA</span></div>
+              <p class="studio-explain" id="voice-studio-explain">Scegli un modello e una voce per vedere i controlli disponibili.</p>
+              <div class="voice-studio-controls">
+                <div class="studio-control native-eleven" id="studio-stability-box">
+                  <label for="studio-stability">STABILITÀ <output id="studio-stability-value">50%</output></label>
+                  <input id="studio-stability" type="range" min="0" max="100" value="50" step="5">
+                </div>
+                <div class="studio-control native-eleven" id="studio-similarity-box">
+                  <label for="studio-similarity">SOMIGLIANZA <output id="studio-similarity-value">75%</output></label>
+                  <input id="studio-similarity" type="range" min="0" max="100" value="75" step="5">
+                </div>
+                <div class="studio-control" id="studio-style-box" hidden>
+                  <label for="studio-style">STILE · v2 <output id="studio-style-value">0%</output></label>
+                  <input id="studio-style" type="range" min="0" max="100" value="0" step="5">
+                </div>
+                <div class="studio-control" id="studio-emotion-box" hidden>
+                  <label for="studio-emotion">INTERPRETAZIONE · TAG v4</label>
+                  <select id="studio-emotion" class="select">
+                    <option value="neutral">Neutra</option>
+                    <option value="curious">Curiosa</option>
+                    <option value="excited">Entusiasta</option>
+                    <option value="gentle">Gentile / delicata</option>
+                    <option value="whisper">Sussurrata</option>
+                    <option value="concerned">Preoccupata</option>
+                    <option value="playful">Giocosa</option>
+                  </select>
+                </div>
+                <div class="studio-control postfx" id="studio-speed-box">
+                  <label for="studio-speed">VELOCITÀ · AUDIO FX <output id="studio-speed-value">1.00×</output></label>
+                  <input id="studio-speed" type="range" min="0.8" max="1.2" value="1" step="0.05">
+                </div>
+                <div class="studio-control postfx" id="studio-pitch-box">
+                  <label for="studio-pitch">PITCH · AUDIO FX <output id="studio-pitch-value">0 semitoni</output></label>
+                  <input id="studio-pitch" type="range" min="-3" max="3" value="0" step="0.5">
+                </div>
+              </div>
+              <p class="studio-micro" id="studio-postfx-note">Velocità e pitch sono effetti applicati localmente al WAV (richiedono ffmpeg). Su Eleven v4 non sono controlli nativi.</p>
+              <div class="studio-profile-line"><div><div class="field-label">VOCE PREDEFINITA DEL ROBOT</div><div id="studio-default-status" class="studio-default-status">Nessun preset salvato per Paky-01.</div></div><button type="button" class="btn line" id="studio-save-default">✓ Imposta su Paky-01</button></div>
+              <div class="studio-micro">Il profilo è un binding audio di Paky-01, separato da identità RGD, Chronon e modello cognitivo. Non cambia le voci del tuo account ElevenLabs.</div>
+            </div>
+            <div class="tts-hint">Le voci sono strumenti audio: non definiscono identità, RGD o memoria del robot.</div>
+            <button id="tts-run" class="btn primary full">Genera la voce <span>→</span></button>
+            <div class="output-card output-tts"><div class="output-label">ANTEPRIMA AUDIO <span id="tts-timing">—</span></div><div id="tts-output" class="muted">Genera un'anteprima per ascoltare e confrontare.</div></div>
+          </section>
+        </div>
+        <div class="section-caption"><span>PIPELINE I/O</span><div class="pipeline"><strong>MIC / WAV</strong><em>→</em><strong>STT PROVIDER</strong><em>→</em><strong>TESTO</strong><em>→</em><strong>TTS PROVIDER</strong><em>→</em><strong>BOSE / WAV</strong></div><span class="last">CONTRACT-READY · NO COGNITION</span></div>
+      </section>
+
+      <section class="view" id="view-models">
+        <div class="eyebrow"><span class="eyebrow-line"></span>REGISTRY / PROVIDER ADAPTERS</div>
+        <div class="page-heading"><h1>Catalogo <span>modelli.</span></h1><p>Modelli locali installabili su richiesta e provider cloud utilizzabili solo con credenziali esplicite. Nessuna installazione automatica.</p></div>
+        <div class="filter-group"><button class="filter active" data-filter="all">Tutti</button><button class="filter" data-filter="stt">Speech to Text</button><button class="filter" data-filter="tts">Text to Speech</button><button class="filter" data-filter="local">Solo locali</button><button class="filter" data-filter="cloud">Cloud</button></div>
+        <div id="model-list" class="model-grid"></div>
+        <div class="info-row"><span class="info-ico">ⓘ</span><p><strong>Installazione ≠ attivazione:</strong> il pulsante Installa scarica solo un modello della lista consentita. Non modifica i pacchetti di sistema, non attiva alcun microfono e non abilita comandi robotici.</p></div>
+      </section>
+
+      <section class="view" id="view-voices">
+        <div class="eyebrow"><span class="eyebrow-line"></span> VOICE LIBRARY / INSTALL &amp; TEST</div>
+        <div class="page-heading"><h1>La tua libreria <span>vocale.</span></h1><p>Scarica nuove voci Piper direttamente da qui oppure cerca quelle disponibili nel tuo account e nella Voice Library di ElevenLabs. Testa ogni voce sullo stesso testo e scegli quella più adatta.</p></div>
+        <div class="panel voices-controls">
+          <div class="voice-control-grid">
+            <div><label class="field-label" for="voice-library-provider">PROVIDER / CATALOGO</label>
+              <select id="voice-library-provider" class="select"><option value="piper">Piper · catalogo locale</option><option value="elevenlabs">ElevenLabs · mie voci</option><option value="elevenlabs_shared">ElevenLabs · voci di tendenza</option><option value="openai">OpenAI · voci API</option></select>
+            </div>
+            <div><label class="field-label" for="voice-library-language">LINGUA</label>
+              <select id="voice-library-language" class="select"><option value="">Tutte</option><option value="it">Italiano</option><option value="en">English</option><option value="es">Español</option><option value="de">Deutsch</option><option value="fr">Français</option><option value="pt">Português</option><option value="sw">Kiswahili</option></select>
+            </div>
+            <div><label class="field-label" for="voice-library-query">CERCA VOCE</label><input id="voice-library-query" class="input" placeholder="Nome, lingua, qualità…" maxlength="90" autocomplete="off"></div>
+          </div>
+          <div class="voice-toolbar"><span id="voice-library-hint" class="muted">Le voci locali richiedono download ONNX; le voci cloud richiedono una chiave API.</span><button id="voice-library-search" class="btn line">⌕ Cerca voci</button></div>
+        </div>
+        <div class="voice-count-row"><span id="voice-library-status">Catalogo pronto per la ricerca.</span><span class="soft-badge">NO AUTO-INSTALL</span></div>
+        <div id="voice-library-grid" class="voice-grid"></div>
+        <div class="voice-more"><button id="voice-library-more" class="btn ghost" hidden>Carica altre voci →</button></div>
+        <div class="info-row"><span class="info-ico">ⓘ</span><p><strong>Installazione consapevole:</strong> i file Piper sono scaricati solo su richiesta. Le voci della libreria condivisa ElevenLabs possono richiedere un piano idoneo e vengono aggiunte al tuo workspace solo con conferma. Ogni prova cloud consuma potenzialmente crediti. Verifica la licenza di utilizzo dei singoli modelli.</p></div>
+      </section>
+
+      <section class="view" id="view-benchmark">
+        <div class="eyebrow"><span class="eyebrow-line"></span>QUALITY ENGINEERING / A-B TESTS</div>
+        <div class="page-heading"><h1>Benchmark <span>comparativo.</span></h1><p>Lo stesso audio, elaborato in sequenza da più modelli. Misuriamo il WER e la latenza, senza mescolare test STT e giudizi di comprensione.</p></div>
+        <div class="benchmark-grid">
+          <div class="panel"><div class="step">CONFIGURAZIONE</div><h2>Confronto STT</h2><p>Usa la registrazione selezionata in Laboratorio.</p><div id="benchmark-clip" class="reference-clip">Nessun WAV selezionato</div><label class="field-label">MODELLI DA CONFRONTARE</label><div id="bench-models" class="bench-options"></div><label for="benchmark-reference" class="field-label">TESTO ESATTO DI RIFERIMENTO</label><textarea id="benchmark-reference" class="textarea" placeholder="Trascrizione ideale per calcolare il WER…"></textarea><button class="btn primary full" id="benchmark-run">Confronta sullo stesso WAV <span>→</span></button></div>
+          <div class="panel result-panel"><div class="step">RISULTATI</div><h2>Precisione &amp; latenza</h2><p id="benchmark-status">In attesa di un test.</p><div class="benchmark-results" id="benchmark-results"><div class="empty-result">I risultati A/B appariranno qui. I dati di test restano sul mini-PC.</div></div></div>
+        </div>
+        <div class="info-row"><span class="info-ico">ⓘ</span><p><strong>Privacy:</strong> inviare lo stesso WAV a un provider cloud richiede conferma esplicita. Le registrazioni vengono conservate localmente solo quando le crei o le importi.</p></div>
+      </section>
+
+      <section class="view" id="view-costs">
+        <div class="eyebrow"><span class="eyebrow-line"></span> ECONOMICS / PROVIDER BILLING INTELLIGENCE</div>
+        <div class="page-heading"><h1>Costi &amp; <span>utilizzo.</span></h1><p>Costi stimati per minuto di voce generata, non per minuto di ascolto. Modelli cloud, tariffe con provenienza e consumi locali — mai confondere stima e fattura.</p></div>
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-head">MESE UTC <span class="stat-icon">◷</span></div><div class="stat-value" id="cost-month">—</div><div class="stat-sub">periodo rilevazione</div></div>
+          <div class="stat"><div class="stat-head">RICHIESTE <span class="stat-icon">↗</span></div><div class="stat-value" id="cost-requests">—</div><div class="stat-sub">effettuate da Voice Lab v0.3.1</div></div>
+          <div class="stat"><div class="stat-head">STIMA NOTA USD <span class="stat-icon">$</span></div><div class="stat-value" id="cost-estimated">—</div><div class="stat-sub">solo prezzi disponibili, parziale</div></div>
+          <div class="stat"><div class="stat-head">NON QUOTATI <span class="stat-icon">◇</span></div><div class="stat-value" id="cost-unpriced">—</div><div class="stat-sub">richieste con tariffa non disponibile</div></div>
+        </div>
+        <div class="cost-panels">
+          <section class="panel">
+            <div class="panel-title-row"><div><div class="step">01 / PROVENIENZA</div><h2>Tariffe &amp; sincronizzazione</h2><p>L'API ElevenLabs fornisce modelli e moltiplicatori, ma non un listino USD definitivo per ogni modello. Per v4 e Turbo nessuna tariffa presunta.</p></div><span class="panel-glyph">↻</span></div>
+            <div class="cost-toolbar"><button id="cost-sync" class="btn primary">↻ Sincronizza API ElevenLabs</button><button id="cost-refresh" class="btn ghost">Aggiorna dati locali</button></div>
+            <div id="cost-sync-status" class="micro-note">Nessuna sincronizzazione recente.</div>
+            <div id="cost-rate-grid" class="cost-rates"></div>
+            <p class="micro-note">Le tariffe di riferimento sono versionate; premi «Tariffa» per aggiungere un prezzo ottenuto dal tuo contratto. L'override è etichettato come inserito dall'operatore e può essere rimosso. Le chiamate cloud continuano a richiedere conferma.</p>
+          </section>
+          <section class="panel">
+            <div class="panel-title-row"><div><div class="step purple">02 / SIMULATORE</div><h2>Quanto costa parlare?</h2><p>Calcola il costo per minuto/ora di <strong>audio generato</strong> e la proiezione mensile. È indipendente dal tempo in cui il robot rimane acceso.</p></div><span class="panel-glyph purple-ink">∿</span></div>
+            <label class="field-label" for="cost-model">MODELLO API</label><select id="cost-model" class="select"></select>
+            <label class="field-label" for="cost-minutes">MINUTI DI VOCE GENERATA AL GIORNO</label><input id="cost-minutes" class="input" type="number" min="0" max="1440" step="5" value="30">
+            <label class="field-label" for="cost-cpm">CARATTERI AL MINUTO DI VOCE · IPOTESI</label><input id="cost-cpm" class="input" type="number" min="100" max="3000" step="50" value="900">
+            <div class="cost-forecast"><div><small>USD / MINUTO PARLATO</small><strong id="forecast-minute">—</strong></div><div><small>USD / ORA PARLATA</small><strong id="forecast-hour">—</strong></div><div><small>USD / 30 GIORNI</small><strong id="forecast-month">—</strong></div></div>
+            <p id="forecast-note" class="micro-note">Seleziona il modello e calcola. In assenza di tariffa verificata la stima rimane indisponibile.</p>
+            <button id="cost-calc" class="btn primary full">Calcola proiezione <span>→</span></button>
+          </section>
+        </div>
+        <section class="panel cost-usage-panel"><div class="step">03 / TELEMETRIA LOCALE</div><h2>Consumi rilevati dal laboratorio</h2><p>Registra solo quantità (caratteri, durata e latenza), senza trascrizioni o audio nel database economico. Dati precedenti alla v0.3.1 esclusi.</p><div id="cost-usage-list" class="cost-usage-list"><div class="muted">Nessun consumo registrato.</div></div></section>
+        <div class="info-row"><span class="info-ico">ⓘ</span><p><strong>Interpretazione:</strong> il costo medio è riferito alla <em>voce sintetizzata</em>. L'uso del microfono e del VAD locali non costituisce consumo TTS. Per una stima dell'ora di conversazione completa servono anche i tempi di parlato, di ascolto e i prezzi STT/cognizione. Le tariffe mostrate non sono fatture né prezzi contrattuali garantiti.</p></div>
+      </section>
+
+      <section class="view" id="view-devices">
+        <div class="eyebrow"><span class="eyebrow-line"></span>HARDWARE I/O / PULSEAUDIO</div>
+        <div class="page-heading"><h1>Dispositivi <span>audio.</span></h1><p>Seleziona gli endpoint PulseAudio da usare per i test, senza cambiare le periferiche predefinite del sistema operativo.</p></div>
+        <div class="device-grid"><section class="panel"><div class="step">INPUT</div><h2>Microfono</h2><p>Sorgente di acquisizione PCM 16 kHz, mono.</p><label class="field-label" for="source-select">PULSEAUDIO SOURCE</label><select id="source-select" class="select"></select><div class="device-status" id="input-device-note">—</div></section><section class="panel"><div class="step purple">OUTPUT</div><h2>Speaker</h2><p>Riproduzione tramite PulseAudio, con selezione A2DP quando disponibile.</p><label class="field-label" for="sink-select">PULSEAUDIO SINK</label><select id="sink-select" class="select"></select><div class="device-status" id="output-device-note">—</div></section></div>
+        <div class="device-buttons"><button id="save-devices" class="btn primary">Salva dispositivi per Voice Lab <span>→</span></button><button id="refresh-devices" class="btn ghost">Aggiorna rilevamento</button></div>
+        <div class="note-grid"><div class="note-card"><strong>01. Isolamento</strong><p>Le modifiche riguardano solo le preferenze della dashboard, non il routing di sistema e non BHL.</p></div><div class="note-card"><strong>02. Test in sicurezza</strong><p>I test riproducono file audio e registrano solo su azione esplicita. Nessun accesso CAN o motor.write.</p></div><div class="note-card"><strong>03. Provider cloud</strong><p>Le chiavi restano sul backend locale. Audio e testo raggiungono i provider cloud solo quando premi un pulsante di prova.</p></div></div>
+      </section>
+      <section class="view" id="view-setup">
+        <div class="eyebrow"><span class="eyebrow-line"></span> SETUP / CREDENZIALI LOCALI</div>
+        <div class="page-heading"><h1>Provider &amp; <span>API keys.</span></h1><p>Inserisci le chiavi direttamente qui. Il backend le salva in un file <code>.env</code> sul mini-PC, con permessi 0600. Le chiavi non vengono mai inviate di nuovo al browser.</p></div>
+        <div class="setup-grid">
+          <section class="panel credential-card" data-provider="elevenlabs">
+            <div class="panel-title-row"><div><div class="step">01 / PROVIDER CLOUD</div><h2>ElevenLabs</h2><p>Voci, sintesi vocale e trascrizione Scribe.</p></div><span class="panel-glyph">♫</span></div>
+            <div id="credential-elevenlabs-status" class="credential-state">Stato in verifica…</div>
+            <div id="credential-elevenlabs-verification" class="scope-status" hidden></div>
+            <label class="field-label" for="credential-elevenlabs-input">ELEVENLABS API KEY</label>
+            <input type="password" id="credential-elevenlabs-input" class="input" placeholder="Incolla una nuova chiave API" autocomplete="new-password" spellcheck="false" autocapitalize="off">
+            <p class="micro-note">La chiave esistente non viene visualizzata. La verifica controlla solo endpoint di lettura (senza crediti): TTS/STT possono funzionare anche con permessi User Read negati. Salvare una nuova chiave sostituisce quella precedente.</p>
+            <div class="credential-actions"><button type="button" class="btn primary" data-key-action="save" data-provider="elevenlabs">Salva chiave</button><button type="button" class="btn line" data-key-action="verify" data-provider="elevenlabs">Verifica</button><button type="button" class="btn danger" data-key-action="delete" data-provider="elevenlabs">Rimuovi</button></div>
+          </section>
+          <section class="panel credential-card" data-provider="openai">
+            <div class="panel-title-row"><div><div class="step purple">02 / PROVIDER CLOUD</div><h2>OpenAI Audio</h2><p>Trascrizione e sintesi vocale via API.</p></div><span class="panel-glyph purple-ink">◎</span></div>
+            <div id="credential-openai-status" class="credential-state">Stato in verifica…</div>
+            <div id="credential-openai-verification" class="scope-status" hidden></div>
+            <label class="field-label" for="credential-openai-input">OPENAI API KEY</label>
+            <input type="password" id="credential-openai-input" class="input" placeholder="Incolla una nuova chiave API" autocomplete="new-password" spellcheck="false" autocapitalize="off">
+            <p class="micro-note">La chiave rimane sul dispositivo e viene inviata soltanto dal backend al provider selezionato.</p>
+            <div class="credential-actions"><button type="button" class="btn primary" data-key-action="save" data-provider="openai">Salva chiave</button><button type="button" class="btn line" data-key-action="verify" data-provider="openai">Verifica</button><button type="button" class="btn danger" data-key-action="delete" data-provider="openai">Rimuovi</button></div>
+          </section>
+        </div>
+        <div class="panel config-location"><div><div class="step">CREDENZIALI / FILE LOCALE</div><h2>Archiviazione .env</h2><p id="config-path">~/.config/openrgd/voice-lab/.env</p><div class="micro-note">Directory 0700 · File 0600 · Scrittura atomica · Nessuna chiave nei log, nei cookie o in localStorage.</div></div><span class="security-glyph">⌁</span></div>
+        <div class="info-row"><span class="info-ico">!</span><p><strong>Sicurezza:</strong> il file è testo in chiaro leggibile dall'utente Linux; non è un vault cifrato. Usa esclusivamente questa dashboard su <code>127.0.0.1</code> o tramite tunnel SSH affidabile. Non pubblicarla sulla LAN/Internet. Per la produzione il salvataggio verrà integrato con OpenRGD Vault.</p></div>
+      </section>
+    </main>
+    <footer class="footer"><span>OPENRGD / VOICE LAB</span><span>LOCALHOST ONLY · SOURCE-AGNOSTIC · EXPERIMENTAL</span><span>v0.3.1</span></footer>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "module_id": "org.openrgd.voice",
+  "version": "0.3.1-lab",
+  "status": "CANDIDATE_NOT_REGISTERED",
+  "description": "Provider-agnostic audio I/O with Eleven v4 Turbo WebSocket previews, conservative pricing metadata, and local usage ledger",
+  "surfaces": [
+    "VOICE_LAB",
+    "CONSOLE_MODULE_FUTURE"
+  ],
+  "capabilities": [
+    "audio.capture",
+    "audio.playback",
+    "stt.transcribe",
+    "tts.synthesize",
+    "providers.discover",
+    "providers.install_explicit",
+    "providers.credentials_local_env",
+    "providers.voice_library",
+    "voice.studio_controls",
+    "voice.output_profile_local",
+    "audio.wav_postprocess_optional",
+    "provider.eleven_v4_turbo_websocket_preview",
+    "provider.model_rates_sync_explicit",
+    "voice.usd_cost_estimate_operator_override",
+    "voice.usage_metrics_local"
+  ],
+  "prohibited": [
+    "motor.write",
+    "safety.override",
+    "rgd.profile.mutate",
+    "chronon.fabricate"
+  ],
+  "binding_policy": "Explicit microphone/speaker selection; no automatic kernel or driver change",
+  "governance": "Non-normative draft. Requires registry governance, permissions audit and Core compatibility review before adoption."
+}
