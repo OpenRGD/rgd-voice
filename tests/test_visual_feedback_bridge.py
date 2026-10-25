@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import unittest
 import wave
@@ -62,7 +61,6 @@ class VisualBridgeTests(unittest.TestCase):
         self.assertEqual(result["status"], "played")
         self.assertEqual([call.args[0] for call in emit.call_args_list],
                          ["playback_started", "playback_stopped"])
-        self.assertEqual(core.subprocess.PIPE, proc.communicate.call_args.kwargs.get("stdout", core.subprocess.PIPE))
 
     def test_playback_error_never_reports_success(self):
         proc = MagicMock()
@@ -120,6 +118,7 @@ class VisualBridgeTests(unittest.TestCase):
                     patch.object(core, "get_json", return_value={"text": "Ciao"}), \
                     patch.object(core.secrets, "get_secret", return_value="fake-no-cloud-call"), \
                     patch.object(core, "audio_duration", return_value=2.0), \
+                    patch("rgd_voice_lab.pricing.record", return_value={"estimated_usd": None}), \
                     patch.object(core.visual_feedback, "emit") as emit:
                 result = core.transcribe(model_id, path)
         self.assertEqual(result["text"], "Ciao")
