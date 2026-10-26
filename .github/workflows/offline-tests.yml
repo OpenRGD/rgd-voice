@@ -21,6 +21,11 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Offline Python unit tests
         run: python -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Browser JavaScript syntax
+        run: node --check rgd_voice_lab/static/app.js
       - name: Syntax and scope
         run: |
           python -m compileall -q rgd_voice_lab
