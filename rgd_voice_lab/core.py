@@ -24,6 +24,7 @@ from pathlib import Path
 from . import secrets
 from . import voice_controls
 from . import visual_feedback
+from . import piper_engine
 
 APP_HOME = Path(os.environ.get('RGD_VOICE_LAB_DATA', str(Path.home() / '.local/share/openrgd/voice-lab'))).expanduser()
 BIND_SOURCE_MATCH = 'alsa_input.usb-BC_Master_1610USB_'
@@ -347,12 +348,13 @@ def synthesize(model_id, text, voice_id, path, controls=None):
     text = voice_controls.expressive_text(text, controls, m)
     t0 = time.monotonic()
     transport_stats = {}
+    piper_stats = None
     if m['provider'] == 'Piper':
-        from piper import PiperVoice
-        with wave.open(str(path), 'wb') as f:
-            if voice_id != m['model']:
-                raise ValueError('Voce Piper non coerente con il modello selezionato')
-            PiperVoice.load(str(piper_path(m['model']))).synthesize_wav(text, f)
+        if voice_id != m['model']:
+            raise ValueError('Voce Piper non coerente con il modello selezionato')
+        # Existing PCM WAV output is unchanged. Keep ONE ONNX session per
+        # Voice Studio process; lock covers concurrent UI/CLI synthesis.
+        piper_stats = piper_engine.ENGINE.synthesize_wav(piper_path(m['model']), text, path)
     elif m['provider'] == 'ElevenLabs':
         if not re.fullmatch(r'[A-Za-z0-9_-]{8,80}', voice_id or ''):
             raise ValueError('Seleziona una voce ElevenLabs dal catalogo')
@@ -403,7 +405,9 @@ def synthesize(model_id, text, voice_id, path, controls=None):
     return {'seconds': elapsed, 'duration': audio_duration(path),
             'model': model_id, 'postprocess_applied': effected,
             'engine': 'eleven_v4_tts_settings' if m['model'] == 'eleven_v4' and explicit_controls else ('eleven_v4_turbo_websocket' if m['model'] == 'eleven_v4_turbo' else 'default'),
-            'cost_estimate': accounting, **transport_stats}
+            'cost_estimate': accounting,
+            **({'piper_runtime': piper_stats} if piper_stats is not None else {}),
+            **transport_stats}
 
 
 def list_voices(provider, model_id=None):
