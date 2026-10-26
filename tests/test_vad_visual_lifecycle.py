@@ -11,7 +11,7 @@ from rgd_voice_lab import vad_lifecycle, visual_feedback
 
 
 class FakeLegacy:
-    def __init__(self, pcm=b'\\x02\\x00' * 480, result=None, fail=None):
+    def __init__(self, pcm=b'\x02\x00' * 480, result=None, fail=None):
         self.pcm = pcm
         self.result = {'seconds': .5} if result is None else result
         self.fail = fail
@@ -39,7 +39,7 @@ class VADVisualTests(TestCase):
         legacy = FakeLegacy()
         original = legacy.read_exact
         seen = []
-        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK': '1'}), \\
+        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK': '1'}), \
                 patch.object(visual_feedback, 'emit', side_effect=lambda event: seen.append(event)):
             result = vad_lifecycle.capture_phrase_observed(
                 legacy, 'test-mic', Path('sample.wav'), vad_mode=2)
@@ -53,7 +53,7 @@ class VADVisualTests(TestCase):
     def test_no_pcm_never_claims_listening(self):
         legacy = FakeLegacy(pcm=b'')
         legacy.result = None
-        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK':'1'}), \\
+        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK':'1'}), \
                 patch.object(visual_feedback, 'emit') as emit:
             self.assertIsNone(vad_lifecycle.capture_phrase_observed(
                 legacy, 'test-mic', Path('sample.wav'), vad_mode=2))
@@ -63,7 +63,7 @@ class VADVisualTests(TestCase):
         legacy = FakeLegacy()
         legacy.result = None
         seen = []
-        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK':'1'}), \\
+        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK':'1'}), \
                 patch.object(visual_feedback, 'emit', side_effect=lambda event: seen.append(event)):
             vad_lifecycle.capture_phrase_observed(legacy, 'test-mic', Path('sample.wav'), vad_mode=2)
         self.assertEqual(seen, ['capture_started', 'ready_idle'])
@@ -72,7 +72,7 @@ class VADVisualTests(TestCase):
         legacy = FakeLegacy(fail=RuntimeError('read failed'))
         original = legacy.read_exact
         seen = []
-        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK':'1'}), \\
+        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK':'1'}), \
                 patch.object(visual_feedback, 'emit', side_effect=lambda event: seen.append(event)):
             with self.assertRaises(RuntimeError):
                 vad_lifecycle.capture_phrase_observed(legacy,'test-mic',Path('sample.wav'),vad_mode=2)
@@ -82,7 +82,7 @@ class VADVisualTests(TestCase):
     def test_opt_in_only_baseline_path_unchanged(self):
         legacy = FakeLegacy()
         original = legacy.read_exact
-        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK':'0'}), \\
+        with patch.dict(os.environ, {'RGD_VOICE_VISUAL_FEEDBACK':'0'}), \
                 patch.object(visual_feedback, 'emit') as emit:
             self.assertEqual(vad_lifecycle.capture_phrase_observed(
                 legacy,'test-mic',Path('sample.wav'),vad_mode=2)['seconds'], .5)
