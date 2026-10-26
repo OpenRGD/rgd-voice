@@ -20,7 +20,9 @@ The `paplay` process-start callback is the best available start evidence in this
 
 **Important UX distinction:** Voice Studio has both native HTML `<audio>` controls and a **"▶ Bose" / "▶ Ascolta sulla Bose"** button. This first integration follows only *server-side* `/api/play` / `core.playback` and the `rgd-voice-say --play` CLI. Browser HTML audio playback has a different lifecycle and is not instrumented here; do not claim an LED reaction for it.
 
-The legacy external VAD bridge in `paky01_vad_studio_v01.py` calls `core.playback` but uses an external `capture_phrase`. Its playback follows this integration; its VAD capture/Whisper lifecycle is **not** claimed to be wired up.
+The **VOICE-0.4D candidate** also instruments the existing local VAD used by `paky01_vad_studio_v01.py` without changing its legacy 0.1D capture algorithm. The adapter `rgd_voice_lab.vad_lifecycle` observes the first real nonempty PCM frame returned from its `parec` reader (not a UI click), then emits `inference.started` only when a valid phrase reaches real Whisper STT. The thinking state is retained through TTS generation until `core.playback` starts. The strictly scoped single-foreground-call observer on the legacy `read_exact` binding is transitional, NOT PERIPH-managed hardware. With `RGD_VOICE_VISUAL_FEEDBACK` unset the original capture behavior remains unchanged.
+
+See [VOICE-0.4D canary instructions](VOICE-0.4D-REAL-LIFECYCLE-CANARY.md). Native HTML browser playback is separately addressed in stacked [Voice PR #4](https://github.com/OpenRGD/rgd-voice/pull/4), and must be reviewed and tested separately. Do not run concurrent browser/VAD event producers with the current single-producer Visual v0.3 candidate.
 
 ## Enabling it (later, on Paky-01)
 
