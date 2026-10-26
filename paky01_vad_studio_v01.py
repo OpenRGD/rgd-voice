@@ -50,29 +50,32 @@ def main():
     p.add_argument('--check',action='store_true')
     a=p.parse_args()
     if not 1 <= a.turns <= 20: p.error('--turns deve essere 1–20')
-    legacy = load_legacy_vad()
-    # --check is hardware discovery only. It must not require a TTS preset,
-    # change the Bose profile, call a cloud provider or start microphone capture.
-    mic,bose=legacy.resolve_devices(activate_a2dp=not a.check)
-    print(f'[AUDIO] INPUT={mic}\n[AUDIO] OUTPUT={bose}',flush=True)
     if a.check:
+        # Hardware discovery must work without a saved voice and must not
+        # start a capture session or change the Bluetooth audio profile.
         try:
             profile=voice_profile.read()
         except (OSError, ValueError) as exc:
-            print(f'[VOICE DEFAULT] Profilo non valido/non leggibile ({type(exc).__name__})',flush=True)
+            print(f'[VOICE DEFAULT] Profilo non valido/non leggibile ({type(exc).__name__})', flush=True)
             profile=None
+    else:
+        # Fail BEFORE any audio-profile switching when the TTS preset is absent.
+        profile=voice_profile.read()
         if profile is None:
-            print(f'[VOICE DEFAULT] Non impostata (facoltativa per --check): {voice_profile.path()}',flush=True)
+            p.error(f'Nessuna voce predefinita. Salvala da Voice Lab → Laboratorio → Imposta su Paky-01. Percorso: {voice_profile.path()}')
+        model=core.MODELS[profile['model_id']]
+        if model['mode']=='cloud' and not a.allow_cloud:
+            p.error('Voce cloud: passa --allow-cloud per autorizzare invio del testo al provider')
+    legacy=load_legacy_vad()
+    mic,bose=legacy.resolve_devices(activate_a2dp=not a.check)
+    print(f'[AUDIO] INPUT={mic}\\n[AUDIO] OUTPUT={bose}', flush=True)
+    if a.check:
+        if profile is None:
+            print(f'[VOICE DEFAULT] Non impostata (facoltativa per --check): {voice_profile.path()}', flush=True)
         else:
-            print(f'[VOICE DEFAULT] {profile["model_id"]} · {profile["voice_id"]}',flush=True)
+            print(f'[VOICE DEFAULT] {profile["model_id"]} · {profile["voice_id"]}', flush=True)
         return 0
-    profile=voice_profile.read()
-    if profile is None:
-        p.error(f'Nessuna voce predefinita. Salvala da Voice Lab → Laboratorio → Imposta su Paky-01. Percorso: {voice_profile.path()}')
-    model=core.MODELS[profile['model_id']]
-    if model['mode']=='cloud' and not a.allow_cloud:
-        p.error('Voce cloud: passa --allow-cloud per autorizzare invio del testo al provider')
-    print(f'[VOICE DEFAULT] {model["id"]} · {profile["voice_id"]}',flush=True)
+    print(f'[VOICE DEFAULT] {model["id"]} · {profile["voice_id"]}', flush=True)
     import webrtcvad  # noqa: F401
     stt=legacy.load_whisper(a.whisper)
     progress=legacy.TurnProgress(a.turns,5)
