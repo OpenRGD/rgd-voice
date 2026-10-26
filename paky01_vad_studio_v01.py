@@ -68,7 +68,7 @@ def main():
             p.error('Voce cloud: passa --allow-cloud per autorizzare invio del testo al provider')
     legacy=load_legacy_vad()
     mic,bose=legacy.resolve_devices(activate_a2dp=not a.check)
-    print(f'[AUDIO] INPUT={mic}\\n[AUDIO] OUTPUT={bose}', flush=True)
+    print(f'[AUDIO] INPUT={mic}\n[AUDIO] OUTPUT={bose}', flush=True)
     if a.check:
         if profile is None:
             print(f'[VOICE DEFAULT] Non impostata (facoltativa per --check): {voice_profile.path()}', flush=True)
