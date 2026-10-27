@@ -126,6 +126,9 @@ class PiperEngine:
                     continue
                 if len(pcm) > 16 * 1024 * 1024 or len(pcm) % (width * channels):
                     raise ValueError("Piper PCM: blocco eccessivo o non allineato")
+                # Bound pathological/buggy voices even with short input text.
+                if chunk_count >= 128 or pcm_bytes + len(pcm) > 64 * 1024 * 1024:
+                    raise ValueError("Piper PCM: limite complessivo del flusso")
                 if pcm_format is None:
                     pcm_format = (rate, width, channels)
                     first_pcm_seconds = max(0.0, time.monotonic() - started)
