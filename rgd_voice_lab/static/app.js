@@ -3,6 +3,42 @@ const $ = id => document.getElementById(id);
 const state = { models: [], devices: null, settings: null, clip: null, ttsClip: null, health: null, busy: false, filter: 'all', lastSTT: null, credentials: null, voiceCursor: null, voicePage: 0, voiceProvider: 'piper', voiceLibraryBusy: false, voiceProfile: null, studioModel: null };
 let toastTimer;
 
+/* HTMLMediaElement output: separate lifecycle from server-side paplay.
+   Browser audio may be routed to any current OS sink; it is not proof of
+   which speaker produced sound. Visual events are best-effort and optional. */
+function instrumentBrowserAudio(player, clipId) {
+  let session = null;
+  let sequence = 0;
+  let reporting = Promise.resolve();
+  function report(event) {
+    if (!session) return;
+    const payload = { clip_id: clipId, playback_session_id: session, sequence: sequence++, event };
+    // Serialize one player's observations; never block or interrupt playback.
+    reporting = reporting.catch(() => {}).then(() =>
+      api('/api/browser-playback', payload, { setup: true })
+    ).catch(() => {});
+  }
+  player.addEventListener('playing', () => {
+    if (session) return;
+    // One active browser preview at a time in this tab.
+    document.querySelectorAll('audio').forEach(other => {
+      if (other !== player && !other.paused) other.pause();
+    });
+    session = crypto.randomUUID().replace(/-/g, '');
+    sequence = 0;
+    report('playing');
+  });
+  const stopped = () => {
+    if (!session) return;
+    report('stopped');
+    session = null;
+  };
+  player.addEventListener('pause', stopped);
+  player.addEventListener('ended', stopped);
+  player.addEventListener('error', stopped);
+  player.addEventListener('emptied', stopped);
+}
+
 function toast(message, bad = false) {
   const el = $('toast'); el.textContent = message; el.classList.toggle('error', bad); el.classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 4800);
@@ -58,6 +94,7 @@ function setClip(result) {
   row.textContent = `✓ WAV selezionato · ${result.duration.toFixed(2)} s`;
   row.style.color = '#8ce8c9'; box.appendChild(row);
   const audio = document.createElement('audio'); audio.controls = true; audio.preload = 'none'; audio.src = `/api/audio/${result.clip_id}`;
+  instrumentBrowserAudio(audio, result.clip_id);
   box.appendChild(audio);
   const button = document.createElement('button'); button.textContent = '▶ Riascolta sulla Bose';
   button.onclick = () => playClip(result.clip_id);
@@ -296,6 +333,7 @@ async function previewVoice(v, holder) {
     const player=document.createElement('audio');player.controls=true;player.preload='none';player.src=`/api/audio/${result.clip_id}`;
     const bose=document.createElement('button');bose.className='mini-btn';bose.textContent='▶ Bose';bose.onclick=()=>playClip(result.clip_id);
     const note=document.createElement('span');note.className='micro-note';note.textContent=`${result.seconds.toFixed(2)} s`;
+    instrumentBrowserAudio(player, result.clip_id);
     holder.append(player,bose,note);
     toast('Anteprima generata: ascolta il risultato.');
   });
@@ -446,7 +484,7 @@ async function runTTS() {
     state.ttsClip=r;
     $('tts-timing').textContent=`${r.seconds.toFixed(2)} s · ${r.duration.toFixed(1)} s audio` + (r.time_to_first_audio_seconds != null ? ` · primo chunk ${r.time_to_first_audio_seconds.toFixed(2)}s (buffer completo prima dell’ascolto)` : '');
     const holder=$('tts-output');holder.replaceChildren();
-    const player=document.createElement('audio');player.controls=true;player.src=`/api/audio/${r.clip_id}`;player.preload='none';holder.appendChild(player);
+    const player=document.createElement('audio');player.controls=true;player.src=`/api/audio/${r.clip_id}`;player.preload='none';instrumentBrowserAudio(player, r.clip_id);holder.appendChild(player);
     const p=document.createElement('div');
     const play=document.createElement('button');play.className='btn ghost';play.textContent='▶ Ascolta sulla Bose';play.onclick=()=>playClip(r.clip_id);
     const del=document.createElement('button');del.className='btn ghost';del.textContent='Elimina audio';del.onclick=()=>operation('Eliminazione',async()=>{await api('/api/delete',{clip_id:r.clip_id});holder.textContent='Audio eliminato.';});
