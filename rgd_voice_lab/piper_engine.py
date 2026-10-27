@@ -13,6 +13,10 @@ import time
 import wave
 
 
+class PiperStreamUnavailable(RuntimeError):
+    """Old Piper API or punctuation-only text produced no streaming PCM."""
+
+
 class PiperEngine:
     """Serialize ONNX load + inference and keep at most one voice in RAM."""
 
@@ -82,6 +86,71 @@ class PiperEngine:
                 "cache_hit": hit,
                 "load_seconds": round(load_seconds, 4),
                 "synthesis_seconds": round(synth_seconds, 4),
+            }
+
+
+    def synthesize_pcm(self, model_path: Path, text: str, on_chunk, *, cancel=None) -> dict:
+        """Generate chunks one sentence at a time, delivering immediately.
+
+        The callback receives (raw_pcm_bytes, sample_rate, channels). It must
+        apply bounded backpressure and must not keep unbounded audio history.
+        The Piper RLock stays held through generation and callback transport,
+        preventing another request from modifying the active ONNX voice.
+        """
+        with self._lock:
+            voice, hit, load_seconds = self._model(model_path)
+            generator = getattr(voice, "synthesize", None)
+            if not callable(generator):
+                raise PiperStreamUnavailable("PiperVoice.synthesize non disponibile")
+            started = time.monotonic()
+            first_pcm_seconds = None
+            last_pcm_seconds = None
+            pcm_format = None
+            chunk_count = 0
+            pcm_bytes = 0
+            for chunk in generator(text):
+                if cancel is not None and cancel.is_set():
+                    raise InterruptedError("Streaming Piper annullato")
+                rate = getattr(chunk, "sample_rate", None)
+                width = getattr(chunk, "sample_width", None)
+                channels = getattr(chunk, "sample_channels", None)
+                pcm = getattr(chunk, "audio_int16_bytes", None)
+                # Piper 1.3+ yields s16 native-endian PCM, one sentence/chunk.
+                if type(rate) is not int or not 8000 <= rate <= 48000:
+                    raise ValueError("Piper PCM: sample rate non valido")
+                if width != 2 or channels != 1:
+                    raise ValueError("Piper PCM: solo mono PCM16 supportato")
+                if not isinstance(pcm, (bytes, bytearray, memoryview)):
+                    raise ValueError("Piper PCM: payload non valido")
+                if not pcm:
+                    continue
+                if len(pcm) > 16 * 1024 * 1024 or len(pcm) % (width * channels):
+                    raise ValueError("Piper PCM: blocco eccessivo o non allineato")
+                if pcm_format is None:
+                    pcm_format = (rate, width, channels)
+                    first_pcm_seconds = max(0.0, time.monotonic() - started)
+                elif pcm_format != (rate, width, channels):
+                    raise ValueError("Piper PCM: cambio formato nel flusso")
+                last_pcm_seconds = max(0.0, time.monotonic() - started)
+                on_chunk(pcm, rate, channels)
+                chunk_count += 1
+                pcm_bytes += len(pcm)
+            if not chunk_count:
+                raise PiperStreamUnavailable("Piper non ha prodotto blocchi audio PCM")
+            self._syntheses += 1
+            return {
+                "resident_enabled": self.enabled(),
+                "cache_hit": hit,
+                "load_seconds": round(load_seconds, 4),
+                "first_pcm_seconds": round(first_pcm_seconds, 4),
+                "last_pcm_seconds": round(last_pcm_seconds, 4),
+                # Includes callback backpressure: NOT pure ONNX inference time.
+                "producer_wall_seconds": round(time.monotonic() - started, 4),
+                "chunk_count": chunk_count,
+                "pcm_bytes": pcm_bytes,
+                "sample_rate": pcm_format[0],
+                "channels": pcm_format[2],
+                "audio_seconds": round(pcm_bytes / (pcm_format[0] * pcm_format[1] * pcm_format[2]), 4),
             }
 
     def status(self) -> dict:
