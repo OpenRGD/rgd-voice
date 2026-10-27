@@ -189,7 +189,8 @@ class Handler(BaseHTTPRequestHandler):
                                         'ready_local': sum(m['status'] == 'ready' for m in models if m['mode'] == 'local'),
                                         'connected_cloud': sum(m['status'] == 'ready' for m in models if m['mode'] == 'cloud'),
                                         'python': sys.executable,
-                                        'ffmpeg': bool(core.shutil.which('ffmpeg'))})
+                                        'ffmpeg': bool(core.shutil.which('ffmpeg')),
+                                        'piper_runtime': core.piper_engine.ENGINE.status()})
             if path == '/api/models':
                 return self.reply(200, {'models': core.catalog()})
             if path == '/api/costs':

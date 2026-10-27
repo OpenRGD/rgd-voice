@@ -13,7 +13,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from rgd_voice_lab import core, voice_profile, visual_feedback, vad_lifecycle
+from rgd_voice_lab import core, voice_profile, visual_feedback, vad_lifecycle, piper_engine
 
 SMOKE = Path.home() / 'openrgd/rgd-voice-paky01-smoke-v0.1'
 def load_legacy_vad():
@@ -78,6 +78,11 @@ def main():
     print(f'[VOICE DEFAULT] {model["id"]} · {profile["voice_id"]}', flush=True)
     import webrtcvad  # noqa: F401
     stt=legacy.load_whisper(a.whisper)
+    if model['provider'] == 'Piper' and piper_engine.ENGINE.enabled():
+        # Explicit one-time warmup before the first spoken greeting. This
+        # does not capture audio, change devices, or send text to cloud.
+        prepared=piper_engine.ENGINE.prepare(core.piper_path(model['model']))
+        print(f'[PIPER] residente: {model["model"]} · load={prepared["load_seconds"]:.3f}s · cache_hit={prepared["cache_hit"]}',flush=True)
     progress=legacy.TurnProgress(a.turns,5)
     with tempfile.TemporaryDirectory(prefix='paky01_studio_io_') as d:
         folder=Path(d)
