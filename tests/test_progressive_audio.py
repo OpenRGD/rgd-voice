@@ -12,7 +12,7 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
-from rgd_voice_lab import core, piper_engine, progressive_audio
+from rgd_voice_lab import core, piper_engine, progressive_audio, benchmark_progressive_piper
 
 SINK = "bluez_sink.operator_test_a2dp"
 REAL_POPEN = subprocess.Popen
@@ -254,6 +254,24 @@ class ProgressiveTests(unittest.TestCase):
             self.run_stream(cancel=cancelled)
         self.assertEqual(self.calls, [])
         self.fallback.assert_not_called()
+
+    def test_no_device_benchmark_uses_same_text_and_real_pcm_metadata(self):
+        with patch.object(benchmark_progressive_piper.piper_engine, "ENGINE", self.engine):
+            result = benchmark_progressive_piper.benchmark(
+                "piper:it_IT-serena-high", "multi", repeat=2)
+        self.assertEqual(result["scenario"], "multi")
+        self.assertEqual(result["repetitions"], 2)
+        self.assertEqual(len(result["runs"]), 2)
+        self.assertTrue(all(r["stream_chunk_count"] == 2 for r in result["runs"]))
+        self.assertTrue(all(r["pcm_bytes"] == 12800 for r in result["runs"]))
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.events, [])
+
+    def test_no_device_benchmark_rejects_cloud_and_unbounded_repeat(self):
+        with self.assertRaises(ValueError):
+            benchmark_progressive_piper.benchmark("el:eleven_v4", "multi", 3)
+        with self.assertRaises(ValueError):
+            benchmark_progressive_piper.benchmark("piper:it_IT-serena-high", "multi", 11)
 
 
 if __name__ == "__main__":
