@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import secrets
 from . import voice_controls
+from . import visual_feedback
 
 APP_HOME = Path(os.environ.get('RGD_VOICE_LAB_DATA', str(Path.home() / '.local/share/openrgd/voice-lab'))).expanduser()
 BIND_SOURCE_MATCH = 'alsa_input.usb-BC_Master_1610USB_'
@@ -200,28 +201,35 @@ def capture(device, seconds, path):
     cmd = ['parecord', f'--device={device}', '--file-format=wav',
            '--format=s16le', '--rate=16000', '--channels=1', str(path)]
     p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if p.poll() is None:
+        # Real parecord subprocess is running, not merely requested by a UI.
+        visual_feedback.emit('capture_started')
     try:
-        time.sleep(sec)
-    finally:
-        if p.poll() is None:
-            p.send_signal(signal.SIGINT)
         try:
-            _o, err = p.communicate(timeout=8)
-        except subprocess.TimeoutExpired:
-            p.kill()
-            _o, err = p.communicate(timeout=3)
-            raise RuntimeError('Timeout parecord')
-    if not path.is_file() or path.stat().st_size < 4096:
-        raise RuntimeError('Audio vuoto: ' + err.decode(errors='replace')[-180:])
-    with wave.open(str(path), 'rb') as w:
-        if w.getnchannels() != 1 or w.getframerate() != 16000 or w.getsampwidth() != 2:
-            raise RuntimeError('Formato microfono non supportato')
-        if w.getnframes() < w.getframerate():
-            raise RuntimeError('Registrazione troppo breve')
-        duration = w.getnframes() / w.getframerate()
-        peak, rms = wav_level(w)
-    return {'duration': round(duration, 2), 'peak_pct': round(peak, 3), 'rms_pct': round(rms, 3)}
-
+            time.sleep(sec)
+        finally:
+            if p.poll() is None:
+                p.send_signal(signal.SIGINT)
+            try:
+                _o, err = p.communicate(timeout=8)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                _o, err = p.communicate(timeout=3)
+                raise RuntimeError('Timeout parecord')
+        if not path.is_file() or path.stat().st_size < 4096:
+            raise RuntimeError('Audio vuoto: ' + err.decode(errors='replace')[-180:])
+        with wave.open(str(path), 'rb') as w:
+            if w.getnchannels() != 1 or w.getframerate() != 16000 or w.getsampwidth() != 2:
+                raise RuntimeError('Formato microfono non supportato')
+            if w.getnframes() < w.getframerate():
+                raise RuntimeError('Registrazione troppo breve')
+            duration = w.getnframes() / w.getframerate()
+            peak, rms = wav_level(w)
+        visual_feedback.emit('ready_idle')
+        return {'duration': round(duration, 2), 'peak_pct': round(peak, 3), 'rms_pct': round(rms, 3)}
+    except Exception:
+        visual_feedback.emit('service_error')
+        raise
 
 def wav_level(handle):
     handle.rewind()
@@ -243,7 +251,27 @@ def audio_duration(path):
 def playback(path, sink):
     if sink not in endpoints('sinks'):
         raise RuntimeError('Cassa selezionata non disponibile')
-    run(['paplay', f'--device={sink}', str(path)], timeout=120)
+    # Popen permits a lifecycle event only once the real paplay process exists.
+    # This observes subprocess start, not independent confirmation of audible PCM.
+    cmd = ['paplay', f'--device={sink}', str(path)]
+    p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    started = p.poll() is None
+    if started:
+        visual_feedback.emit('playback_started')
+    try:
+        try:
+            _out, err = p.communicate(timeout=120)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.communicate(timeout=5)
+            raise
+        if p.returncode:
+            raise RuntimeError(f'paplay: {(err or "").strip()[-350:] or "exit " + str(p.returncode)}')
+    except Exception:
+        visual_feedback.emit('service_error')
+        raise
+    if started:
+        visual_feedback.emit('playback_stopped')
     return {'status': 'played', 'sink': sink}
 
 
@@ -259,39 +287,46 @@ def transcribe(model_id, path):
         raise ValueError('Modello STT non valido')
     require_ready(m)
     t0 = time.monotonic()
-    if m['provider'] == 'faster-whisper':
-        from faster_whisper import WhisperModel
-        model_path = whisper_path(m['model'])
-        key = str(model_path)
-        if key not in MODEL_CACHE:
-            MODEL_CACHE.clear()  # Bound GPU/CPU RAM; only 1 local model cached.
-            MODEL_CACHE[key] = WhisperModel(str(model_path), device='cpu', compute_type='int8', local_files_only=True)
-        segs, _ = MODEL_CACHE[key].transcribe(str(path), language='it', beam_size=m['beam'],
-                                               vad_filter=False, condition_on_previous_text=False)
-        result = ' '.join(s.text.strip() for s in segs).strip()
-    elif m['provider'] == 'ElevenLabs':
-        fields = {'model_id': m['model'], 'language_code': 'it', 'tag_audio_events': 'false'}
-        raw, ctype = multipart(fields, 'file', path.name, path.read_bytes(), 'audio/wav')
-        result = get_json('https://api.elevenlabs.io/v1/speech-to-text',
-                          headers={'xi-api-key': secrets.get_secret('elevenlabs'), 'Content-Type': ctype}, data=raw).get('text', '')
-    elif m['provider'] == 'OpenAI':
-        fields = {'model': m['model'], 'language': 'it', 'response_format': 'json'}
-        raw, ctype = multipart(fields, 'file', path.name, path.read_bytes(), 'audio/wav')
-        result = get_json('https://api.openai.com/v1/audio/transcriptions',
-                          headers={'Authorization': 'Bearer ' + secrets.get_secret('openai'), 'Content-Type': ctype}, data=raw).get('text', '')
-    else:
-        raise RuntimeError('STT provider non supportato')
-    elapsed = round(time.monotonic() - t0, 3)
-    # Local ledger contains aggregates, not audio, utterances or transcript text.
-    from . import pricing
+    visual_feedback.emit('capture_stopped_processing')
     try:
-        accounting = pricing.record(APP_HOME, m['provider'], model_id, 'stt',
-                                    audio_seconds=audio_duration(path), request_seconds=elapsed)
-    except (OSError, RuntimeError, ValueError):
-        accounting = {'estimated_usd': None, 'rate_status': 'ledger_unavailable'}
-    return {'text': str(result).strip(), 'seconds': elapsed, 'model': model_id,
-            'cost_estimate': accounting}
+        if m['provider'] == 'faster-whisper':
+            from faster_whisper import WhisperModel
+            model_path = whisper_path(m['model'])
+            key = str(model_path)
+            if key not in MODEL_CACHE:
+                MODEL_CACHE.clear()  # Bound GPU/CPU RAM; only 1 local model cached.
+                MODEL_CACHE[key] = WhisperModel(str(model_path), device='cpu', compute_type='int8', local_files_only=True)
+            segs, _ = MODEL_CACHE[key].transcribe(str(path), language='it', beam_size=m['beam'],
+                                                   vad_filter=False, condition_on_previous_text=False)
+            result = ' '.join(s.text.strip() for s in segs).strip()
+        elif m['provider'] == 'ElevenLabs':
+            fields = {'model_id': m['model'], 'language_code': 'it', 'tag_audio_events': 'false'}
+            raw, ctype = multipart(fields, 'file', path.name, path.read_bytes(), 'audio/wav')
+            result = get_json('https://api.elevenlabs.io/v1/speech-to-text',
+                              headers={'xi-api-key': secrets.get_secret('elevenlabs'), 'Content-Type': ctype}, data=raw).get('text', '')
+        elif m['provider'] == 'OpenAI':
+            fields = {'model': m['model'], 'language': 'it', 'response_format': 'json'}
+            raw, ctype = multipart(fields, 'file', path.name, path.read_bytes(), 'audio/wav')
+            result = get_json('https://api.openai.com/v1/audio/transcriptions',
+                              headers={'Authorization': 'Bearer ' + secrets.get_secret('openai'), 'Content-Type': ctype}, data=raw).get('text', '')
+        else:
+            raise RuntimeError('STT provider non supportato')
+        elapsed = round(time.monotonic() - t0, 3)
+        # Local ledger contains aggregates, not audio, utterances or transcript text.
+        from . import pricing
+        try:
+            accounting = pricing.record(APP_HOME, m['provider'], model_id, 'stt',
+                                        audio_seconds=audio_duration(path), request_seconds=elapsed)
+        except (OSError, RuntimeError, ValueError):
+            accounting = {'estimated_usd': None, 'rate_status': 'ledger_unavailable'}
+        output = {'text': str(result).strip(), 'seconds': elapsed, 'model': model_id,
+                'cost_estimate': accounting}
+        visual_feedback.emit('ready_idle')
+        return output
 
+    except Exception:
+        visual_feedback.emit('service_error')
+        raise
 
 def synthesize(model_id, text, voice_id, path, controls=None):
     """Synthesize a bounded voice sample, optionally with Voice Studio controls.
