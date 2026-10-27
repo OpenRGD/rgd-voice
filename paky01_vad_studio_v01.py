@@ -13,7 +13,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from rgd_voice_lab import core, voice_profile, visual_feedback, vad_lifecycle, piper_engine
+from rgd_voice_lab import core, voice_profile, visual_feedback, vad_lifecycle, piper_engine, progressive_audio
 
 SMOKE = Path.home() / 'openrgd/rgd-voice-paky01-smoke-v0.1'
 def load_legacy_vad():
@@ -25,11 +25,28 @@ def load_legacy_vad():
     return importlib.import_module('paky01_voice_vad_v02')
 
 
-def speak(profile, text, sink, wav, *, allow_cloud=False):
+def speak(profile, text, sink, wav, *, allow_cloud=False, progressive=False):
     model_id = profile['model_id']
     model = core.MODELS[model_id]
     if model['mode'] == 'cloud' and not allow_cloud:
         raise RuntimeError('Modello cloud selezionato. Passa --allow-cloud per autorizzare invio del testo al provider.')
+    if progressive:
+        # Experimental local Piper-only path; any pre-audio failure falls
+        # back to the proven full-WAV path (including Visual lifecycle).
+        result = progressive_audio.speak(
+            profile, text, sink,
+            fallback=lambda: speak(profile, text, sink, wav, allow_cloud=allow_cloud),
+        )
+        if result['mode'] == 'progressive_pcm':
+            print(f'[STREAM] first_pcm={result["first_pcm_seconds"]:.3f}s '
+                  f'first_write={result["first_write_seconds"]:.3f}s '
+                  f'producer_done={result["synthesis_done_seconds"]:.3f}s '
+                  f'player_drained={result["playback_drain_seconds"]:.3f}s '
+                  f'chunks={result["chunk_count"]} '
+                  f'audio={result["audio_seconds"]:.2f}s', flush=True)
+        else:
+            print(f'[STREAM] fallback=full_wav reason={result["fallback_reason"]}', flush=True)
+        return result['synthesis_seconds'], result['playback_seconds'], result['total_seconds']
     start=time.monotonic()
     try:
         synth = core.synthesize(model_id, text, profile['voice_id'], wav, controls=profile['controls'])
@@ -48,6 +65,7 @@ def main():
     p.add_argument('--debug-vad',action='store_true')
     p.add_argument('--whisper',choices=('base','small'),default='base')
     p.add_argument('--check',action='store_true')
+    p.add_argument('--progressive', action='store_true', help='Pilota Piper PCM via pacat, fallback WAV prima del primo PCM; default OFF')
     a=p.parse_args()
     if not 1 <= a.turns <= 20: p.error('--turns deve essere 1–20')
     if a.check:
@@ -64,6 +82,8 @@ def main():
         if profile is None:
             p.error(f'Nessuna voce predefinita. Salvala da Voice Lab → Laboratorio → Imposta su Paky-01. Percorso: {voice_profile.path()}')
         model=core.MODELS[profile['model_id']]
+        if a.progressive and model['provider']!='Piper':
+            p.error('--progressive è consentito solo con voce locale Piper')
         if model['mode']=='cloud' and not a.allow_cloud:
             p.error('Voce cloud: passa --allow-cloud per autorizzare invio del testo al provider')
     legacy=load_legacy_vad()
@@ -86,7 +106,7 @@ def main():
     progress=legacy.TurnProgress(a.turns,5)
     with tempfile.TemporaryDirectory(prefix='paky01_studio_io_') as d:
         folder=Path(d)
-        speak(profile,'Ti ascolto.',bose,folder/'reply.wav',allow_cloud=a.allow_cloud)
+        speak(profile,'Ti ascolto.',bose,folder/'reply.wav',allow_cloud=a.allow_cloud,progressive=a.progressive)
         time.sleep(0.5)
         while not progress.done:
             print(f'\n[TURN {progress.completed+1}/{a.turns}] Parla quando vuoi.',flush=True)
@@ -103,7 +123,7 @@ def main():
                 continue
             response='Ho sentito: '+recognized
             print(f'[STT] {recognized}',flush=True)
-            synth,played,_=speak(profile,response,bose,folder/'reply.wav',allow_cloud=a.allow_cloud)
+            synth,played,_=speak(profile,response,bose,folder/'reply.wav',allow_cloud=a.allow_cloud,progressive=a.progressive)
             print(f'[METRICS] stt={stt_s:.2f}s synth={synth:.2f}s playback={played:.2f}s',flush=True)
             progress.accepted()
             time.sleep(0.5)
