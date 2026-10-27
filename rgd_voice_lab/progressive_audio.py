@@ -1,16 +1,18 @@
-"""VOICE-0.5A.1 — opt-in, bounded Piper -> PulseAudio raw PCM playback.
+"""VOICE-0.5A.1 — opt-in Piper sentence PCM -> PulseAudio output.
 
-This is experimental HALF DUPLEX, not a capture service, AEC or barge-in.
-The established full WAV + paplay path remains the default and fallback.
-Piper emits sentence-level AudioChunk objects (NOT phoneme or token streams).
+Real overlap: one ONNX producer, one pacat consumer, bounded queue (2 chunks).
+This does NOT implement simultaneous microphone capture, AEC, barge-in or
+Piper token-level audio generation. Default full WAV behavior is unchanged.
 """
 from __future__ import annotations
 
 import os
+from queue import Empty, Full, Queue
 import select
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 from . import core, piper_engine, visual_feedback, voice_controls
@@ -18,14 +20,17 @@ from . import core, piper_engine, visual_feedback, voice_controls
 MAX_WRITE_BYTES = 32768
 WRITE_STALL_SECONDS = 10.0
 PLAYBACK_DRAIN_SECONDS = 120.0
+PRODUCER_STOP_WAIT_SECONDS = 15.0
+QUEUE_CAPACITY_CHUNKS = 2
+_END = object()
 
 
 class ProgressivePlaybackError(RuntimeError):
-    """Stream failed. May have already played partial audio: do not replay."""
+    """PCM output failed; may have played some audio, so never blind-replay."""
 
 
 class RawPulsePlayer:
-    """One pacat process, native PCM format, kernel-pipe backpressure."""
+    """One subprocess, native mono PCM16, sink explicitly selected by caller."""
 
     def __init__(self, sink: str, *, origin: float, cancel=None):
         self.sink = sink
@@ -41,12 +46,12 @@ class RawPulsePlayer:
         exe = shutil.which("pacat")
         if not exe:
             raise FileNotFoundError("pacat non disponibile sul mini-PC")
-        args = [exe, "--playback", "--raw", "--format=s16le",
-                f"--rate={rate}", f"--channels={channels}", f"--device={self.sink}",
-                "--client-name=OpenRGD-Voice-Progressive"]
+        cmd = [exe, "--playback", "--raw", "--format=s16le",
+               f"--rate={rate}", f"--channels={channels}", f"--device={self.sink}",
+               "--client-name=OpenRGD-Voice-Progressive"]
         self.process = subprocess.Popen(
-            args, stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=False)
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, shell=False)
         self.process_start_seconds = time.monotonic() - self.origin
         if self.process.stdin is None or self.process.poll() is not None:
             raise ProgressivePlaybackError("pacat non avviato")
@@ -65,7 +70,7 @@ class RawPulsePlayer:
                 raise ProgressivePlaybackError(f"pacat interrotto ({self.process.returncode})")
             if time.monotonic() - last_write > WRITE_STALL_SECONDS:
                 raise TimeoutError("pacat: pipe PCM bloccata")
-            _read, writable, _errors = select.select([], [fd], [], 0.1)
+            _r, writable, _x = select.select([], [fd], [], 0.1)
             if not writable:
                 continue
             try:
@@ -75,12 +80,12 @@ class RawPulsePlayer:
             if sent <= 0:
                 raise ProgressivePlaybackError("pacat: nessun byte scritto")
             view = view[sent:]
-            last_write = time.monotonic()
             self.bytes_written += sent
+            last_write = time.monotonic()
             if self.first_write_seconds is None:
                 self.first_write_seconds = time.monotonic() - self.origin
-                # A successful pipe write marks *player activity*, not sound
-                # actually heard over a buffered Bluetooth A2DP link.
+                # This is first PCM written to pacat, not measured acoustic
+                # onset; Bose A2DP buffering adds an unknown latency.
                 visual_feedback.emit("playback_started")
 
     def finish(self) -> float:
@@ -99,10 +104,10 @@ class RawPulsePlayer:
         return time.monotonic() - self.origin
 
     def close(self) -> None:
-        """Always reap the subprocess; never leave a second BLE/audio owner."""
-        if self.process is None:
-            return
+        """Reap the player after success/error/interrupt, no orphan process."""
         p = self.process
+        if p is None:
+            return
         if p.poll() is None:
             p.terminate()
             try:
@@ -111,24 +116,28 @@ class RawPulsePlayer:
                 p.kill()
                 p.wait(timeout=2)
         if p.stdin is not None and not p.stdin.closed:
-            p.stdin.close()
+            try:
+                p.stdin.close()
+            except BrokenPipeError:
+                pass
 
 
 def _fallback(fallback, reason: str) -> dict:
-    """Fallback before any PCM has reached the pipe, never after."""
-    synth, playback, elapsed = fallback()
+    synth, played, elapsed = fallback()
     return {
-        "mode": "full_wav_fallback", "fallback_reason": reason,
-        "synthesis_seconds": synth, "playback_seconds": playback,
+        "mode": "full_wav_fallback",
+        "fallback_reason": reason,
+        "synthesis_seconds": synth,
+        "playback_seconds": played,
         "total_seconds": elapsed,
     }
 
 
 def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict:
-    """Stream only local Piper with default speed/pitch; all else uses WAV.
+    """Prefer local Piper sentence streaming; switch to WAV only pre-audio.
 
-    The fallback callback must implement the existing authorized Voice path.
-    It may be invoked ONLY when no PCM bytes have been queued to PulseAudio.
+    The callback 'fallback' is the existing authorized synthesize + playback
+    path; it MUST NOT be called after any PCM has reached PulseAudio.
     """
     model = core.MODELS.get(profile.get("model_id"))
     if not model or model["provider"] != "Piper":
@@ -139,8 +148,8 @@ def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict
         raise ValueError("Testo: 1–650 caratteri")
     options = voice_controls.normalize(profile.get("controls"))
     voice_controls.validate_for_model(model, options)
-    # Local FFmpeg postprocessing acts on *complete* WAV; never silently
-    # drop the saved speed and pitch settings for progressive output.
+    # ffmpeg's saved speed/pitch effects require a complete WAV. Preserve
+    # the operator's settings instead of silently outputting unmodified audio.
     if voice_controls.needs_local_fx(options):
         return _fallback(fallback, "speed_pitch_require_full_wav")
     if not piper_engine.ENGINE.enabled():
@@ -152,11 +161,66 @@ def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict
     core.require_ready(model)
     if sink not in core.endpoints("sinks"):
         raise RuntimeError("Cassa selezionata non disponibile")
+
     origin = time.monotonic()
-    player = RawPulsePlayer(sink, origin=origin, cancel=cancel)
+    event = cancel if cancel is not None else threading.Event()
+    q = Queue(maxsize=QUEUE_CAPACITY_CHUNKS)
+    stats = {}
+    errors = []
+    player = RawPulsePlayer(sink, origin=origin, cancel=event)
+
+    def enqueue(pcm, rate, channels):
+        # Piper generates complete sentence chunks; cap is enforced in
+        # piper_engine. Max queued: 2 chunks, no unbounded audio retention.
+        while not event.is_set():
+            try:
+                q.put((pcm, rate, channels), timeout=0.1)
+                return
+            except Full:
+                pass
+        raise InterruptedError("Producer PCM annullato")
+
+    def produce():
+        try:
+            stats.update(piper_engine.ENGINE.synthesize_pcm(
+                core.piper_path(model["model"]), text, enqueue, cancel=event))
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            # Guaranteed sentinel on normal exit/failure. On cancellation,
+            # the consumer has stopped and does not need another queue item.
+            while not event.is_set():
+                try:
+                    q.put(_END, timeout=0.1)
+                    break
+                except Full:
+                    pass
+
+    producer = threading.Thread(target=produce, name="rgd-piper-pcm", daemon=True)
+    producer.start()
     try:
-        stats = piper_engine.ENGINE.synthesize_pcm(
-            core.piper_path(model["model"]), text, player.write, cancel=cancel)
+        while True:
+            if event.is_set():
+                raise InterruptedError("Streaming PCM annullato")
+            try:
+                item = q.get(timeout=0.1)
+            except Empty:
+                if not producer.is_alive():
+                    # A producer crash must not hang the audio loop.
+                    break
+                continue
+            if item is _END:
+                break
+            pcm, rate, channels = item
+            player.write(pcm, rate, channels)
+
+        producer.join(timeout=PRODUCER_STOP_WAIT_SECONDS)
+        if producer.is_alive():
+            raise TimeoutError("Thread Piper non terminato")
+        if errors:
+            raise errors[0]
+        if not stats:
+            raise ProgressivePlaybackError("Nessuna metrica di sintesi PCM")
         synthesized_at = time.monotonic() - origin
         playback_ended_at = player.finish()
         return {
@@ -171,19 +235,20 @@ def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict
             "total_seconds": round(playback_ended_at, 4),
             "audio_observed_on_bose": False,
         }
-    except piper_engine.PiperStreamUnavailable as exc:
+    except BaseException as exc:
+        event.set()
+        player.close()
+        producer.join(timeout=PRODUCER_STOP_WAIT_SECONDS)
+        if producer.is_alive():
+            visual_feedback.emit("service_error")
+            raise RuntimeError("Producer Piper non terminato; interrompere sessione") from exc
         if player.first_write_seconds is None:
-            return _fallback(fallback, "piper_stream_unavailable")
-        visual_feedback.emit("service_error")
-        raise ProgressivePlaybackError(str(exc)) from exc
-    except (OSError, TimeoutError, ProgressivePlaybackError) as exc:
-        if player.first_write_seconds is None:
-            # No bytes submitted yet: safe to synthesize and play the old WAV.
-            return _fallback(fallback, "raw_player_unavailable")
-        visual_feedback.emit("service_error")
-        raise
-    except BaseException:
+            if isinstance(exc, piper_engine.PiperStreamUnavailable):
+                return _fallback(fallback, "piper_stream_unavailable")
+            if isinstance(exc, (OSError, ProgressivePlaybackError, TimeoutError)):
+                return _fallback(fallback, "raw_player_unavailable")
         visual_feedback.emit("service_error")
         raise
     finally:
+        event.set()
         player.close()
