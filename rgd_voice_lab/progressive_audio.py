@@ -167,6 +167,7 @@ def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict
     q = Queue(maxsize=QUEUE_CAPACITY_CHUNKS)
     stats = {}
     errors = []
+    producer_done = []
     player = RawPulsePlayer(sink, origin=origin, cancel=event)
 
     def enqueue(pcm, rate, channels):
@@ -187,6 +188,7 @@ def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict
         except BaseException as exc:
             errors.append(exc)
         finally:
+            producer_done.append(time.monotonic() - origin)
             # Guaranteed sentinel on normal exit/failure. On cancellation,
             # the consumer has stopped and does not need another queue item.
             while not event.is_set():
@@ -221,7 +223,8 @@ def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict
             raise errors[0]
         if not stats:
             raise ProgressivePlaybackError("Nessuna metrica di sintesi PCM")
-        synthesized_at = time.monotonic() - origin
+        # Production can finish before the consumer drains its queue.
+        synthesized_at = producer_done[0]
         playback_ended_at = player.finish()
         return {
             "mode": "progressive_pcm",
