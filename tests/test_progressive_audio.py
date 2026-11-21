@@ -255,6 +255,34 @@ class ProgressiveTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.fallback.assert_not_called()
 
+    def test_success_does_not_set_callers_cancel_token(self):
+        token = threading.Event()
+        out = self.run_stream(cancel=token)
+        self.assertEqual(out["mode"], "progressive_pcm")
+        self.assertFalse(token.is_set())
+        self.assertEqual(self.events, ["playback_started", "playback_stopped"])
+        self.fallback.assert_not_called()
+
+    def test_cancel_after_first_write_stops_playback_without_replay(self):
+        token = threading.Event()
+        original = progressive_audio.RawPulsePlayer.write
+
+        def cancel_after_first_write(player, pcm, rate, channels):
+            result = original(player, pcm, rate, channels)
+            token.set()
+            return result
+
+        with patch.object(
+            progressive_audio.RawPulsePlayer, "write", cancel_after_first_write
+        ):
+            with self.assertRaises(InterruptedError):
+                self.run_stream(cancel=token)
+        self.assertIn("playback_started", self.events)
+        self.assertIn("playback_stopped", self.events)
+        self.assertNotIn("service_error", self.events)
+        self.assertEqual(self.events.count("playback_started"), 1)
+        self.fallback.assert_not_called()
+
     def test_no_device_benchmark_uses_same_text_and_real_pcm_metadata(self):
         with patch.object(benchmark_progressive_piper.piper_engine, "ENGINE", self.engine):
             result = benchmark_progressive_piper.benchmark(
