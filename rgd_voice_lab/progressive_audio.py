@@ -146,6 +146,10 @@ def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict
         raise ValueError("Voce Piper incoerente con modello predefinito")
     if not isinstance(text, str) or not 1 <= len(text.strip()) <= 650:
         raise ValueError("Testo: 1–650 caratteri")
+    # An explicit cancellation must never start playback or the WAV fallback.
+    # InterruptedError inherits OSError, so do not classify it as a device fault.
+    if cancel is not None and cancel.is_set():
+        raise InterruptedError("Streaming PCM annullato")
     options = voice_controls.normalize(profile.get("controls"))
     voice_controls.validate_for_model(model, options)
     # ffmpeg's saved speed/pitch effects require a complete WAV. Preserve
@@ -163,7 +167,17 @@ def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict
         raise RuntimeError("Cassa selezionata non disponibile")
 
     origin = time.monotonic()
-    event = cancel if cancel is not None else threading.Event()
+    # Keep caller's cancellation token read-only: success must not set it.
+    internal_stop = threading.Event()
+
+    class _CancelSignal:
+        def is_set(self):
+            return internal_stop.is_set() or (cancel is not None and cancel.is_set())
+
+        def set(self):
+            internal_stop.set()
+
+    event = _CancelSignal()
     q = Queue(maxsize=QUEUE_CAPACITY_CHUNKS)
     stats = {}
     errors = []
@@ -245,6 +259,12 @@ def speak(profile: dict, text: str, sink: str, *, fallback, cancel=None) -> dict
         if producer.is_alive():
             visual_feedback.emit("service_error")
             raise RuntimeError("Producer Piper non terminato; interrompere sessione") from exc
+        if isinstance(exc, InterruptedError):
+            # Intentional stop, not a device error. If PCM was already sent,
+            # notify Visual that the playback process has been stopped.
+            if player.first_write_seconds is not None and not player.completed:
+                visual_feedback.emit("playback_stopped")
+            raise
         if player.first_write_seconds is None:
             if isinstance(exc, piper_engine.PiperStreamUnavailable):
                 return _fallback(fallback, "piper_stream_unavailable")
