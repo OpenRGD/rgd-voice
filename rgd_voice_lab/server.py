@@ -21,12 +21,14 @@ from . import core
 from . import secrets
 from . import voice_profile
 from . import pricing
+from . import browser_playback, visual_feedback
 
 HERE = Path(__file__).parent
 STATIC = HERE / 'static'
 RECENT = collections.deque(maxlen=40)
 SETTINGS_LOCK = threading.Lock()
 VERIFICATION_STATE = {}    # Read-only probe results for current process, never secrets.
+BROWSER_PLAYBACK_GATE = browser_playback.BrowserPlaybackGate()
 
 
 def ensure_dirs():
@@ -248,6 +250,15 @@ class Handler(BaseHTTPRequestHandler):
                     raise
                 return self.reply(200, {'clip_id': id_, 'duration': duration, 'name': 'WAV importato'})
             data = self.body(max_bytes=32000)
+            if path == '/api/browser-playback':
+                # Local-only media-element hint; browser report is not proof
+                # of physical speaker output. No provider data or remote URL.
+                self.check_setup_mutation()
+                event = browser_playback.validate_browser_playback(data)
+                if event['event'] == 'playing':
+                    existing_clip(event['clip_id'])
+                result = BROWSER_PLAYBACK_GATE.consume(event, visual_feedback.emit)
+                return self.reply(200, {'ok': True, **result})
             if path == '/api/pricing/sync':
                 self.check_setup_mutation()
                 if data.get('confirm') is not True:
