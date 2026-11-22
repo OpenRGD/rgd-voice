@@ -14,7 +14,7 @@ class FixtureTests(unittest.TestCase):
     def test_exact_same_pcm_in_wav_and_raw_files(self):
         raw_parts = [
             b"\x00\x00" * 2205,
-            b"\x02\x00" * 4410,
+            b"\x00\x40" * 4410,
             b"\xfc\xff" * 2205,
         ]
 
