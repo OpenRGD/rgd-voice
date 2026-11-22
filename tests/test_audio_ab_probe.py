@@ -59,15 +59,10 @@ class FixtureTests(unittest.TestCase):
     def test_paced_fixture_uses_exact_same_three_pcm_chunks(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            pcm_parts = [
-                b"\\x04\\x00" * 300,
-                b"\\x05\\x00" * 400,
-                b"\\x06\\x00" * 500,
-            ]
-            # Save the same bytes that would have been generated once by Piper.
-            # Construct bytes here, without loading any model or sound server.
-            pcm_parts = [bytes.fromhex(x.replace("\\x", "")) * n for x, n in
-                         [("04\\x00", 300), ("05\\x00", 400), ("06\\x00", 500)]]
+            # Synthetic PCM frames, distinct nonzero amplitudes per chunk.
+            pcm_parts = [bytes((4, 0)) * 300,
+                         bytes((5, 0)) * 400,
+                         bytes((6, 0)) * 500]
             raw = root / "fixture.pcm"
             raw.write_bytes(b"".join(pcm_parts))
             fixture = {
@@ -93,9 +88,9 @@ class FixtureTests(unittest.TestCase):
                     return 0.5
                 def close(self):
                     self.closed = True
-            with patch.object(audio_ab_probe.progressive_audio, "RawPulsePlayer", FakePlayer), \\
-                 patch.object(audio_ab_probe.time, "sleep") as pause:
-                result = audio_ab_probe.play_paced_fixture(fixture, "test_sink", 1.8)
+            with patch.object(audio_ab_probe.progressive_audio, "RawPulsePlayer", FakePlayer):
+                with patch.object(audio_ab_probe.time, "sleep") as pause:
+                    result = audio_ab_probe.play_paced_fixture(fixture, "test_sink", 1.8)
             self.assertEqual([x[0] for x in played], pcm_parts)
             self.assertTrue(all(x[1:] == (22050, 1) for x in played))
             self.assertEqual(result["bytes_written"], len(b"".join(pcm_parts)))
