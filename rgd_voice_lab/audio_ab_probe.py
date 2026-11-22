@@ -16,7 +16,7 @@ import tempfile
 import time
 import wave
 
-from . import core, piper_engine, voice_controls, voice_profile
+from . import core, piper_engine, progressive_audio, voice_controls, voice_profile
 
 PROBE_TEXT = (
     "Questa è la frase numero uno. Dovresti sentire ogni parola dall'inizio alla fine. "
@@ -103,13 +103,69 @@ def _run_player(label: str, cmd: list[str], *, raw_path: Path | None = None) -> 
         raise RuntimeError(f"{label} failed: {err[-400:] or result.returncode}")
 
 
+def play_paced_fixture(fixture: dict, sink: str, gap_seconds: float) -> dict:
+    """Reproduce the original streaming player's PIPE path from saved PCM.
+
+    Exactly the same sample bytes as WAV/pacat in test A/B. The only variable
+    is the intentional gap between chunk writes. No Piper inference overlaps,
+    no synthetic samples/silence are inserted.
+    """
+    if not 0 <= gap_seconds <= 5.0:
+        raise ValueError("Pacing gap must be between 0 and 5 seconds")
+    origin = time.monotonic()
+    player = progressive_audio.RawPulsePlayer(sink, origin=origin)
+    trace = []
+    try:
+        with fixture["raw_path"].open("rb") as raw:
+            for index, chunk in enumerate(fixture["chunks"]):
+                if index and gap_seconds:
+                    print(f"[C PACED] wait={gap_seconds:.3f}s before chunk {index + 1}", flush=True)
+                    time.sleep(gap_seconds)
+                expected = chunk["bytes"]
+                pcm = raw.read(expected)
+                if len(pcm) != expected:
+                    raise ValueError("Raw fixture shorter than recorded chunk length")
+                arrived = time.monotonic() - origin
+                player.write(pcm, fixture["sample_rate"], 1)
+                written = time.monotonic() - origin
+                trace.append({
+                    "chunk": index + 1,
+                    "pcm_bytes": expected,
+                    "pcm_seconds": chunk["seconds"],
+                    "arrival_seconds": round(arrived, 4),
+                    "write_completed_seconds": round(written, 4),
+                })
+                print(f'[C CHUNK {index + 1}] PCM={chunk["seconds"]:.2f}s '
+                      f'arrived={arrived:.3f}s written={written:.3f}s', flush=True)
+            if raw.read(1):
+                raise ValueError("Raw fixture longer than recorded chunk lengths")
+        end = player.finish()
+        return {
+            "gap_seconds": gap_seconds,
+            "first_write_seconds": round(player.first_write_seconds, 4),
+            "drained_seconds": round(end, 4),
+            "bytes_written": player.bytes_written,
+            "chunks": trace,
+        }
+    finally:
+        player.close()
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="A/B identical Piper PCM: paplay WAV versus pacat RAW")
     p.add_argument("--play", action="store_true",
                    help="Actually play A and B to selected Bose A2DP sink; otherwise generate only")
     p.add_argument("--sink", default=core.BIND_SINK_MATCH,
                    help="Explicit enumerated PulseAudio sink; defaults to Paky-01 Bose A2DP")
+    p.add_argument("--paced-gap-ms", type=int, default=None,
+                   help="Optional C test: same PCM chunks, pause 0–5000ms between writes")
+    p.add_argument("--paced-only", action="store_true",
+                   help="Run only the paced C test (requires --play and --paced-gap-ms)")
     a = p.parse_args(argv)
+    if a.paced_gap_ms is not None and not 0 <= a.paced_gap_ms <= 5000:
+        p.error("--paced-gap-ms must be 0–5000")
+    if a.paced_only and (not a.play or a.paced_gap_ms is None):
+        p.error("--paced-only requires --play and --paced-gap-ms")
     profile = voice_profile.read()
     if not profile or profile.get("model_id") != "piper:it_IT-serena-high":
         p.error("Questa prova richiede il profilo locale Piper Serena High")
@@ -145,19 +201,27 @@ def main(argv=None) -> int:
             print("[DRY] Nessun player avviato. WAV/PCM temporanei eliminati.", flush=True)
             return 0
 
-        print("\nLe prove A e B riprodurranno LA STESSA generazione Piper.", flush=True)
+        print("\nLe prove condividono LA STESSA generazione Piper.", flush=True)
         print("Annota quali frasi senti: UNO, DUE, TRE, e se manca l'inizio o la fine.", flush=True)
-        input("\nPremi INVIO per PROVA A: WAV completo via paplay... ")
-        _run_player("A WAV/paplay", [
-            "paplay", f"--device={a.sink}", str(fixture["wav_path"]),
-        ])
-        input("\nPremi INVIO per PROVA B: stessi PCM grezzi via pacat... ")
-        _run_player("B RAW/pacat", [
-            "pacat", "--playback", "--raw", "--format=s16le",
-            f"--rate={fixture['sample_rate']}", "--channels=1",
-            f"--device={a.sink}", "--client-name=OpenRGD-Voice-AB-Probe",
-        ], raw_path=fixture["raw_path"])
-        print("\n[FINITO] Dimmi quali frasi erano udibili in A e in B.", flush=True)
+        if not a.paced_only:
+            input("\nPremi INVIO per PROVA A: WAV completo via paplay... ")
+            _run_player("A WAV/paplay", [
+                "paplay", f"--device={a.sink}", str(fixture["wav_path"]),
+            ])
+            input("\nPremi INVIO per PROVA B: stessi PCM grezzi via pacat... ")
+            _run_player("B RAW/pacat", [
+                "pacat", "--playback", "--raw", "--format=s16le",
+                f"--rate={fixture['sample_rate']}", "--channels=1",
+                f"--device={a.sink}", "--client-name=OpenRGD-Voice-AB-Probe",
+            ], raw_path=fixture["raw_path"])
+        if a.paced_gap_ms is not None:
+            print("\n[C PACED] Stessa sorgente PCM, invio a blocchi con intervalli controllati.", flush=True)
+            input("Premi INVIO per PROVA C: player PCM progressivo... ")
+            result = play_paced_fixture(fixture, a.sink, a.paced_gap_ms / 1000)
+            print(f'[C PACED] exit=0 first_write={result["first_write_seconds"]:.3f}s '
+                  f'drained={result["drained_seconds"]:.3f}s '
+                  f'bytes_written={result["bytes_written"]}', flush=True)
+        print("\n[FINITO] Dimmi quali frasi erano udibili nelle prove eseguite.", flush=True)
         print("[CLEANUP] I file temporanei WAV/PCM sono stati eliminati.", flush=True)
     return 0
 
