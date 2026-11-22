@@ -56,6 +56,67 @@ class FixtureTests(unittest.TestCase):
                     audio_ab_probe.capture_fixture(Path("/fake"), "Test", Path(d))
             player.assert_not_called()
 
+    def test_paced_fixture_uses_exact_same_three_pcm_chunks(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pcm_parts = [
+                b"\\x04\\x00" * 300,
+                b"\\x05\\x00" * 400,
+                b"\\x06\\x00" * 500,
+            ]
+            # Save the same bytes that would have been generated once by Piper.
+            # Construct bytes here, without loading any model or sound server.
+            pcm_parts = [bytes.fromhex(x.replace("\\x", "")) * n for x, n in
+                         [("04\\x00", 300), ("05\\x00", 400), ("06\\x00", 500)]]
+            raw = root / "fixture.pcm"
+            raw.write_bytes(b"".join(pcm_parts))
+            fixture = {
+                "raw_path": raw, "sample_rate": 22050,
+                "chunks": [{"bytes": len(part), "seconds": len(part) / 44100}
+                           for part in pcm_parts],
+            }
+            played = []
+            instances = []
+            class FakePlayer:
+                def __init__(self, sink, *, origin):
+                    self.sink = sink
+                    self.origin = origin
+                    self.first_write_seconds = None
+                    self.bytes_written = 0
+                    self.closed = False
+                    instances.append(self)
+                def write(self, pcm, rate, channels):
+                    self.first_write_seconds = 0.001 if self.first_write_seconds is None else self.first_write_seconds
+                    played.append((bytes(pcm), rate, channels))
+                    self.bytes_written += len(pcm)
+                def finish(self):
+                    return 0.5
+                def close(self):
+                    self.closed = True
+            with patch.object(audio_ab_probe.progressive_audio, "RawPulsePlayer", FakePlayer), \\
+                 patch.object(audio_ab_probe.time, "sleep") as pause:
+                result = audio_ab_probe.play_paced_fixture(fixture, "test_sink", 1.8)
+            self.assertEqual([x[0] for x in played], pcm_parts)
+            self.assertTrue(all(x[1:] == (22050, 1) for x in played))
+            self.assertEqual(result["bytes_written"], len(b"".join(pcm_parts)))
+            self.assertEqual([x["chunk"] for x in result["chunks"]], [1, 2, 3])
+            self.assertEqual(result["gap_seconds"], 1.8)
+            self.assertEqual(pause.call_count, 2)
+            pause.assert_any_call(1.8)
+            self.assertEqual(len(instances), 1)
+            self.assertTrue(instances[0].closed)
+
+    def test_paced_probe_rejects_invalid_gap_before_device_access(self):
+        with self.assertRaises(ValueError):
+            audio_ab_probe.play_paced_fixture({}, "none", -0.5)
+        with self.assertRaises(ValueError):
+            audio_ab_probe.play_paced_fixture({}, "none", 5.1)
+        with patch.object(audio_ab_probe.core, "endpoints") as endpoints:
+            with self.assertRaises(SystemExit) as exc:
+                audio_ab_probe.main(["--paced-only", "--paced-gap-ms", "1800"])
+        self.assertEqual(exc.exception.code, 2)
+        endpoints.assert_not_called()
+
     def test_no_play_flag_does_not_discover_or_start_speakers(self):
         profile = {"model_id": "piper:it_IT-serena-high", "controls": {}}
         fixture = {
