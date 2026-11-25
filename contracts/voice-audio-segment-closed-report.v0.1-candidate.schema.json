@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:openrgd:voice:audio-segment-closed-report:v0.1-candidate",
+  "title": "Voice ephemeral closed-segment metadata (candidate, not RI ObservationRef)",
+  "description": "Non-authoritative metadata only; emitted by existing Voice capture owner after a consented segment closes. Does not contain PCM bytes, transcript, media path, observation_id, payload digest or proof of physical source/time/history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "producer",
+    "report_kind",
+    "producer_session_id",
+    "segment_sequence",
+    "source_id",
+    "source_id_verified",
+    "capture_owner_status",
+    "consent",
+    "format",
+    "time",
+    "ri_observation_ref",
+    "payload_attached",
+    "storage_status",
+    "history_committed",
+    "actuation_enabled"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "voice.audio-segment-closed-report.v0.1-candidate"
+    },
+    "producer": {
+      "const": "rgd-voice"
+    },
+    "report_kind": {
+      "const": "metadata_only_closed_audio_segment"
+    },
+    "producer_session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "segment_sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "source_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "source_id_verified": {
+      "const": false
+    },
+    "capture_owner_status": {
+      "const": "voice_local_unmanaged"
+    },
+    "consent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "purpose",
+        "scope",
+        "expires_monotonic_ns"
+      ],
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "scope": {
+          "const": "metadata_only"
+        },
+        "expires_monotonic_ns": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "format": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "media_type",
+        "pcm_sample_rate_hz",
+        "pcm_channels",
+        "pcm_sample_width_bytes",
+        "sample_frame_count"
+      ],
+      "properties": {
+        "media_type": {
+          "const": "audio/wav"
+        },
+        "pcm_sample_rate_hz": {
+          "type": "integer",
+          "minimum": 8000,
+          "maximum": 48000
+        },
+        "pcm_channels": {
+          "const": 1
+        },
+        "pcm_sample_width_bytes": {
+          "const": 2
+        },
+        "sample_frame_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440000
+        }
+      }
+    },
+    "time": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clock_domain_id",
+        "boot_id",
+        "segment_closed_monotonic_ns",
+        "source_measurement_time_status",
+        "source_measurement_time",
+        "chronograf_anchor_ref"
+      ],
+      "properties": {
+        "clock_domain_id": {
+          "const": "host.monotonic.local_process"
+        },
+        "boot_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "segment_closed_monotonic_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_measurement_time_status": {
+          "const": "unknown"
+        },
+        "source_measurement_time": {
+          "type": "null"
+        },
+        "chronograf_anchor_ref": {
+          "type": "null"
+        }
+      }
+    },
+    "ri_observation_ref": {
+      "type": "null"
+    },
+    "payload_attached": {
+      "const": false
+    },
+    "storage_status": {
+      "const": "not_persisted"
+    },
+    "history_committed": {
+      "const": false
+    },
+    "actuation_enabled": {
+      "const": false
+    }
+  }
+}
