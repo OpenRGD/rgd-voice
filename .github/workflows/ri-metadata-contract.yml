@@ -1,0 +1,32 @@
+name: Voice RI-01 metadata candidate conformance
+on:
+  pull_request:
+    paths:
+      - 'rgd_voice_lab/ri_segment_metadata.py'
+      - 'rgd_voice_lab/vad_lifecycle.py'
+      - 'contracts/voice-audio-segment-closed-report.v0.1-candidate.schema.json'
+      - 'tests/test_ri_segment_metadata.py'
+      - '.github/workflows/ri-metadata-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schema-and-boundary:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install pinned contract validator
+        run: python -m pip install --disable-pip-version-check jsonschema==4.23.0
+      - name: Validate RI-01 schema and opt-in Voice boundary
+        run: python -m unittest discover -s tests -p 'test_ri_segment_metadata.py' -v
+      - name: Reject missing/invalid JSON
+        run: python -m json.tool contracts/voice-audio-segment-closed-report.v0.1-candidate.schema.json > /dev/null

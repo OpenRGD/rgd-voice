@@ -21,10 +21,26 @@ from . import visual_feedback
 _OBSERVER_LOCK = threading.Lock()
 
 
-def capture_phrase_observed(legacy: Any, mic: str, path: Any, **options: Any) -> Any:
-    """Off-by-default; do not emit a listening event until actual PCM arrives."""
+def _submit_ri_metadata_after_capture(result: Any, path: Any, fanout: Any) -> None:
+    """Never block or fail the VAD for a best-effort, explicitly authorized tap."""
+    if not result or fanout is None:
+        return
+    try:
+        # This is an O(1) queue scheduling operation: NO PCM reads here.
+        fanout.submit_closed_wav(path)
+    except Exception:
+        # An opt-in RI consumer can fail without changing speech outcome.
+        pass
+
+
+def capture_phrase_observed(legacy: Any, mic: str, path: Any, *,
+                            ri_metadata_fanout: Any = None,
+                            **options: Any) -> Any:
+    """Current Voice-owned microphone remains unchanged; RI metadata is opt-in."""
     if os.environ.get('RGD_VOICE_VISUAL_FEEDBACK') != '1':
-        return legacy.capture_phrase(mic, path, **options)
+        result = legacy.capture_phrase(mic, path, **options)
+        _submit_ri_metadata_after_capture(result, path, ri_metadata_fanout)
+        return result
 
     with _OBSERVER_LOCK:
         original_read = legacy.read_exact
@@ -55,7 +71,10 @@ def capture_phrase_observed(legacy: Any, mic: str, path: Any, **options: Any) ->
 
         if not result and received_pcm:
             visual_feedback.emit('ready_idle')
-        return result
+
+    # Must run OUTSIDE the temporary legacy read_exact patch and observer lock.
+    _submit_ri_metadata_after_capture(result, path, ri_metadata_fanout)
+    return result
 
 
 def transcribe_observed(legacy: Any, model: Any, capture_path: Any) -> tuple[str, float]:
